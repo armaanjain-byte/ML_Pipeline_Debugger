@@ -1,118 +1,175 @@
+"""
+FIXED: app/debugger/recommendations.py
+
+CHANGES:
+- Structured recommendations with actions
+- Priority-based sorting
+- Severity levels
+- Actionable remediation steps
+"""
+
 from typing import Dict, List, Any
 
 
 class RecommendationEngine:
     """
     Converts detected data issues into actionable recommendations.
-    This module is purely rule-based for now.
+    Rule-based system that generates fix suggestions.
     """
-
-    def __init__(self):
-        pass
-
-    def generate(self, checks_output: Dict[str, Any]) -> Dict[str, List[Dict[str, str]]]:
+    
+    def generate(self, checks_output: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Main entry point.
-
-        Parameters:
-            checks_output: dict returned from data_checks module
-
+        Main entry point for generating recommendations.
+        
+        Args:
+            checks_output: Output from DataChecks.run_all_checks()
+        
         Returns:
-            dict:
-                {
-                    "recommendations": [
-                        {
-                            "issue_type": str,
-                            "feature": str,
-                            "problem": str,
-                            "recommendation": str
-                        }
-                    ]
-                }
+            dict: recommendations and priority-sorted list
         """
-
         recommendations = []
-
-        # Missing Values
-        recommendations.extend(
-            self._handle_missing(checks_output.get("missing", {}))
-        )
-
-        # Class Imbalance
-        imbalance = checks_output.get("imbalance")
-        if imbalance:
-            recommendations.append(
-                self._handle_imbalance(imbalance)
-            )
-
-        # Constant Features
-        recommendations.extend(
-            self._handle_constant(checks_output.get("constant", []))
-        )
-
-        # Correlation
-        recommendations.extend(
-            self._handle_correlation(checks_output.get("correlation", []))
-        )
-
-        return {"recommendations": recommendations}
-
-    def _handle_missing(self, missing: Dict[str, float]) -> List[Dict[str, str]]:
-        results = []
-
-        for col, pct in missing.items():
-            if pct > 0:
-                if pct > 50:
-                    rec = "Consider dropping this feature due to excessive missing values."
-                elif pct > 20:
-                    rec = "Consider advanced imputation (KNN, model-based) instead of simple imputation."
-                else:
-                    rec = "Simple imputation (mean/median/mode) is sufficient."
-
-                results.append({
-                    "issue_type": "missing_values",
-                    "feature": col,
-                    "problem": f"{pct:.2f}% missing values",
-                    "recommendation": rec
-                })
-
-        return results
-
-    def _handle_imbalance(self, imbalance: Dict[str, Any]) -> Dict[str, str]:
-        ratio = imbalance.get("ratio")
-
-        if ratio and ratio < 0.5:
-            rec = "Apply resampling techniques such as SMOTE, undersampling, or class weighting."
-        else:
-            rec = "Imbalance is mild. Monitor performance metrics like F1-score instead of accuracy."
-
+        issues = checks_output.get("issues", [])
+        
+        for issue in issues:
+            rec = self._generate_for_issue(issue)
+            if rec:
+                recommendations.append(rec)
+        
+        # Sort by severity
+        sorted_recs = self._prioritize(recommendations)
+        
         return {
-            "issue_type": "class_imbalance",
-            "feature": imbalance.get("target_column", "target"),
-            "problem": f"Class ratio = {ratio}",
-            "recommendation": rec
+            "recommendations": sorted_recs,
+            "total_issues": len(issues),
+            "critical_issues": sum(1 for r in sorted_recs if r.get("severity") == "high")
         }
-
-    def _handle_constant(self, constant_cols: List[str]) -> List[Dict[str, str]]:
-        return [
-            {
-                "issue_type": "constant_feature",
-                "feature": col,
-                "problem": "Feature has constant value",
-                "recommendation": "Drop this feature as it adds no predictive value."
-            }
-            for col in constant_cols
-        ]
-
-    def _handle_correlation(self, correlated_pairs: List[tuple]) -> List[Dict[str, str]]:
-        results = []
-
-        for col1, col2 in correlated_pairs:
-            results.append({
-                "issue_type": "high_correlation",
-                "feature": f"{col1}, {col2}",
-                "problem": "Highly correlated features",
-                "recommendation": f"Consider dropping one of '{col1}' or '{col2}' to reduce multicollinearity."
-            })
-
-        return results
+    
+    def _generate_for_issue(self, issue: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate recommendation for single issue"""
+        issue_type = issue.get("type")
+        
+        if issue_type == "missing_values":
+            return self._recommend_missing(issue)
+        elif issue_type == "constant_feature":
+            return self._recommend_constant(issue)
+        elif issue_type == "duplicate_rows":
+            return self._recommend_duplicates(issue)
+        elif issue_type == "class_imbalance":
+            return self._recommend_imbalance(issue)
+        elif issue_type == "high_correlation":
+            return self._recommend_correlation(issue)
+        elif issue_type == "outliers":
+            return self._recommend_outliers(issue)
+        
+        return None
+    
+    def _recommend_missing(self, issue: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Recommend strategy for missing values.
+        Strategy depends on percentage missing.
+        """
+        desc = issue.get("description", "")
+        pct = float(desc.split("%")[0]) if "%" in desc else 0
+        
+        if pct > 50:
+            action = "drop_column"
+            rationale = "Too much data missing to impute reliably. Dropping column recommended."
+            urgency = "high"
+        elif pct > 20:
+            action = "advanced_imputation"
+            rationale = "Use KNN or iterative imputation instead of simple median/mode."
+            urgency = "medium"
+        else:
+            action = "simple_imputation"
+            rationale = "Simple imputation (median/mode) is sufficient for < 20% missing."
+            urgency = "low"
+        
+        return {
+            **issue,
+            "action": action,
+            "rationale": rationale,
+            "urgency": urgency
+        }
+    
+    def _recommend_constant(self, issue: Dict[str, Any]) -> Dict[str, Any]:
+        """Recommend dropping constant features"""
+        return {
+            **issue,
+            "action": "drop_column",
+            "rationale": "Features with constant values add no predictive power. Drop immediately.",
+            "urgency": "high"
+        }
+    
+    def _recommend_duplicates(self, issue: Dict[str, Any]) -> Dict[str, Any]:
+        """Recommend handling duplicates"""
+        return {
+            **issue,
+            "action": "remove_duplicates",
+            "rationale": "Exact duplicate rows inflate metrics and introduce information leakage.",
+            "urgency": "high"
+        }
+    
+    def _recommend_imbalance(self, issue: Dict[str, Any]) -> Dict[str, Any]:
+        """Recommend strategy for imbalanced data"""
+        return {
+            **issue,
+            "action": "apply_balancing",
+            "recommendations": [
+                "Use SMOTE (Synthetic Minority Over-sampling)",
+                "Use class_weight parameter in model (automatic balancing)",
+                "Use stratified cross-validation",
+                "Monitor F1-score instead of accuracy"
+            ],
+            "rationale": "Imbalanced classes lead to biased models favoring majority class.",
+            "urgency": "high"
+        }
+    
+    def _recommend_correlation(self, issue: Dict[str, Any]) -> Dict[str, Any]:
+        """Recommend handling high correlation"""
+        col_pair = issue.get("column", "Unknown")
+        corr_val = issue.get("description", "").split(":")[-1] if ":" in issue.get("description", "") else "high"
+        
+        return {
+            **issue,
+            "action": "reduce_multicollinearity",
+            "recommendations": [
+                f"Drop one of the correlated features",
+                "Use PCA (Principal Component Analysis)",
+                "Use regularization (L1/L2)"
+            ],
+            "rationale": f"Multicollinearity ({corr_val}) increases model complexity without benefit.",
+            "urgency": "medium"
+        }
+    
+    def _recommend_outliers(self, issue: Dict[str, Any]) -> Dict[str, Any]:
+        """Recommend handling outliers"""
+        desc = issue.get("description", "")
+        pct = float(desc.split("(")[1].split("%")[0]) if "(" in desc else 0
+        
+        if pct > 10:
+            action = "investigate_remove"
+            rationale = f"High outlier percentage ({pct:.1f}%) may indicate data quality issues."
+        else:
+            action = "transform_or_robust"
+            rationale = "Consider log transformation or robust scaling to reduce outlier impact."
+        
+        return {
+            **issue,
+            "action": action,
+            "recommendations": [
+                "Investigate root cause of outliers",
+                "Consider log/box-cox transformation",
+                "Use robust scaling (median/IQR based)"
+            ],
+            "rationale": rationale,
+            "urgency": "medium"
+        }
+    
+    def _prioritize(self, recommendations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Sort recommendations by severity (high → medium → low)"""
+        severity_order = {"high": 0, "medium": 1, "low": 2}
+        
+        return sorted(
+            recommendations,
+            key=lambda x: severity_order.get(x.get("severity"), 99)
+        )
