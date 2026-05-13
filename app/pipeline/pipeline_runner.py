@@ -134,9 +134,15 @@ class PipelineRunner:
             
             # Step 7: Evaluate
             logger.info("[Step 7/8] Evaluating model...")
-            metrics = self.model.evaluate(y_test, y_pred, y_pred_proba)
-            logger.info(f"✓ Metrics computed: {list(metrics.keys())}")
             
+            # Standard holdout evaluation
+            metrics = self.model.evaluate(y_test, y_pred, y_pred_proba)
+            
+            # K-Fold Cross Validation
+            cv_metrics = self.model.cross_validate(X_train, y_train)
+            metrics.update(cv_metrics)  # Merge CV metrics into main metrics
+            
+            logger.info(f"✓ Metrics computed: {list(metrics.keys())}")
             # Step 8: Feature importance
             logger.info("[Step 8/8] Computing feature importance...")
             feature_importance = self.model.feature_importance(feature_names)
@@ -185,11 +191,11 @@ class PipelineRunner:
     def _run_checks(self, df: Any) -> Dict[str, Any]:
         """Run all data checks"""
         try:
-            return self.checker.run_all_checks(df, self.target_column)
+            # Added self.task_type to the arguments here
+            return self.checker.run_all_checks(df, self.target_column, self.task_type)
         except Exception as e:
             logger.warning(f"Data checks failed (non-fatal): {str(e)}")
             return {"issues": [], "error": str(e)}
-    
     def _preprocess(self, df: Any) -> tuple:
         """Preprocess data with error handling"""
         try:
