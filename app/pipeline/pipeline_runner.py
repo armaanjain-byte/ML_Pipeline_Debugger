@@ -33,7 +33,7 @@ class PipelineRunner:
         self.loader = DataLoader(file_path)
         self.preprocessor = Preprocessor(target_column)
         self.model = Model(task_type)
-        self.checker = DataChecker(target_column)
+        self.checker = DataChecks(target_column)
         self.recommender = RecommendationEngine()
 
     def run(self) -> Dict[str, Any]:
