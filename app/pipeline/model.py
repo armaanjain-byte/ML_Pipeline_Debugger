@@ -1,130 +1,102 @@
-import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-from sklearn.model_selection import cross_val_score
+import numpy as np
 from typing import Dict, Any, List
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.model_selection import cross_val_score
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 
 class Model:
-    """
-    Handles model initialization, training, evaluation, and cross-validation.
-    """
-
-    def __init__(self, task_type: str = "regression", random_state: int = 42):
+    def __init__(self, task_type: str, random_state: int = 42, dev_mode: bool = False):
         self.task_type = task_type
         self.random_state = random_state
-        
-        if self.task_type == "regression":
-            # Added n_estimators and max_depth for lightning-fast training
-            self.model = RandomForestRegressor(
-                n_estimators=10, 
-                max_depth=5, 
-                random_state=self.random_state, 
-                n_jobs=-1
-            )
-        elif self.task_type == "classification":
-            self.model = RandomForestClassifier(
-                n_estimators=10, 
-                max_depth=5, 
-                random_state=self.random_state, 
-                n_jobs=-1
-            )
-        else:
-            raise ValueError(f"Unsupported task_type: {self.task_type}")
-    
-    
+        self.pipeline = None
+        self.feature_names_in_ = None
+        self.dev_mode = dev_mode 
+    def _build_pipeline(self, X: pd.DataFrame):
+        """Dynamically builds a preprocessing pipeline based on data types."""
+        numeric_features = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
+        categorical_features = X.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
 
-    def train(self, X_train: np.ndarray, y_train: np.ndarray) -> None:
-        self.model.fit(X_train, y_train)
-
-    def predict(self, X_test: np.ndarray) -> np.ndarray:
-        return self.model.predict(X_test)
-
-    def predict_proba(self, X_test: np.ndarray) -> np.ndarray:
-        if self.task_type == "classification" and hasattr(self.model, "predict_proba"):
-            return self.model.predict_proba(X_test)
-        return np.array([])
-
-    def cross_validate(self, X_train: np.ndarray, y_train: np.ndarray, cv: int = 5) -> Dict[str, float]:
-        """
-        Performs K-Fold cross-validation on the training set to evaluate stability.
-        """
-        if self.task_type == "regression":
-            scoring = 'neg_mean_squared_error'
-            scores = cross_val_score(self.model, X_train, y_train, cv=cv, scoring=scoring)
-            # Convert negative MSE to RMSE
-            rmse_scores = np.sqrt(-scores)
-            
-            return {
-                "cv_mean_rmse": float(np.mean(rmse_scores)),
-                "cv_std_rmse": float(np.std(rmse_scores)),
-                "cv_folds": cv
-            }
-        else:
-            scoring = 'f1_macro'
-            scores = cross_val_score(self.model, X_train, y_train, cv=cv, scoring=scoring)
-            
-            return {
-                "cv_mean_f1": float(np.mean(scores)),
-                "cv_std_f1": float(np.std(scores)),
-                "cv_folds": cv
-            }
-
-    def evaluate(self, y_test: np.ndarray, y_pred: np.ndarray, y_pred_proba: np.ndarray = None) -> Dict[str, float]:
-        metrics = {}
-        if self.task_type == "regression":
-            metrics["rmse"] = float(np.sqrt(mean_squared_error(y_test, y_pred)))
-            metrics["mae"] = float(mean_absolute_error(y_test, y_pred))
-            metrics["r2"] = float(r2_score(y_test, y_pred))
-        elif self.task_type == "classification":
-            metrics["accuracy"] = float(accuracy_score(y_test, y_pred))
-            metrics["precision"] = float(precision_score(y_test, y_pred, average='macro', zero_division=0))
-            metrics["recall"] = float(recall_score(y_test, y_pred, average='macro', zero_division=0))
-            metrics["f1"] = float(f1_score(y_test, y_pred, average='macro', zero_division=0))
-        
-        return metrics
-
-    def feature_importance(self, feature_names: List[str]) -> Dict[str, float]:
-        if not hasattr(self.model, "feature_importances_"):
-            return {}
-            
-        importances = self.model.feature_importances_
-        
-        # Fallback if feature names mismatch
-        if len(feature_names) != len(importances):
-            feature_names = [f"feature_{i}" for i in range(len(importances))]
-            
-        feature_importance_dict = dict(zip(feature_names, importances))
-        
-        # Sort by importance descending
-        sorted_importance = {
-            k: float(v) for k, v in sorted(
-                feature_importance_dict.items(), 
-                key=lambda item: item[1], 
-                reverse=True
-            )
-        }
-        
-        return sorted_importance
-    # app/pipeline/model.py
-
-
-def _build_pipeline(self, X: pd.DataFrame):
-    numeric_features = X.select_dtypes(include=['int64', 'float64']).columns
-    categorical_features = X.select_dtypes(include=['object', 'category']).columns
-
-    preprocessor = ColumnTransformer(
-        transformers=[
-            ('num', StandardScaler(), numeric_features),
-            ('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), categorical_features)
+        # Route 1: Scale numbers
+        numeric_transformer = Pipeline(steps=[
+            ('scaler', StandardScaler())
         ])
-    
-    # Bind the preprocessor and the model together
-    self.pipeline = Pipeline(steps=[
-        ('preprocessor', preprocessor),
-        ('classifier', self.model)
-    ])
+
+        # Route 2: Convert strings to numbers (ignore unknown categories in test data)
+        categorical_transformer = Pipeline(steps=[
+            ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
+        ])
+
+        # Combine routes
+        preprocessor = ColumnTransformer(
+            transformers=[
+                ('num', numeric_transformer, numeric_features),
+                ('cat', categorical_transformer, categorical_features)
+            ])
+
+        # Define the base estimator (Keeping dev-mode settings for speed)
+        if self.dev_mode:
+            # Lightweight settings for 3-second testing
+            model_kwargs = {"n_estimators": 10, "max_depth": 5, "random_state": self.random_state, "n_jobs": -1}
+        else:
+            # Production settings (What your config.py actually intended)
+            model_kwargs = {"n_estimators": 100, "max_depth": None, "random_state": self.random_state, "n_jobs": -1}
+
+        # Define the base estimator using the dynamic kwargs
+        if self.task_type == "regression":
+            estimator = RandomForestRegressor(**model_kwargs)
+        elif self.task_type == "classification":
+            estimator = RandomForestClassifier(**model_kwargs)
+        else:
+            raise ValueError(f"Unknown task type: {self.task_type}")
+
+        # The final pipeline object
+        self.pipeline = Pipeline(steps=[
+            ('preprocessor', preprocessor),
+            ('estimator', estimator)
+        ])
+
+    def train(self, X_train: pd.DataFrame, y_train: pd.Series):
+        """Builds the pipeline and trains the model."""
+        self.feature_names_in_ = X_train.columns.tolist()
+        self._build_pipeline(X_train)
+        self.pipeline.fit(X_train, y_train)
+
+    def predict(self, X_test: pd.DataFrame) -> np.ndarray:
+        return self.pipeline.predict(X_test)
+
+    def evaluate(self, y_test: pd.Series, y_pred: np.ndarray) -> Dict[str, float]:
+        if self.task_type == "classification":
+            return {
+                "accuracy": float(accuracy_score(y_test, y_pred)),
+                "precision": float(precision_score(y_test, y_pred, average='weighted', zero_division=0)),
+                "recall": float(recall_score(y_test, y_pred, average='weighted', zero_division=0)),
+                "f1": float(f1_score(y_test, y_pred, average='weighted', zero_division=0))
+            }
+        else:
+            return {
+                "rmse": float(np.sqrt(mean_squared_error(y_test, y_pred))),
+                "mae": float(mean_absolute_error(y_test, y_pred)),
+                "r2": float(r2_score(y_test, y_pred))
+            }
+
+    def cross_validate(self, X_train: pd.DataFrame, y_train: pd.Series, cv: int = 5) -> Dict[str, Any]:
+        """Runs Cross-Validation using the entire robust pipeline."""
+        if self.pipeline is None:
+            self._build_pipeline(X_train)
+            
+        scoring = 'f1_weighted' if self.task_type == 'classification' else 'neg_root_mean_squared_error'
+        scores = cross_val_score(self.pipeline, X_train, y_train, cv=cv, scoring=scoring, n_jobs=-1)
+        
+        if self.task_type == 'regression':
+            scores = -scores # Scikit-learn returns negative MSE/RMSE
+
+        return {
+            f"cv_mean_{scoring.replace('neg_', '')}": float(scores.mean()),
+            f"cv_std_{scoring.replace('neg_', '')}": float(scores.std()),
+            "cv_folds": cv
+        }

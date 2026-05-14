@@ -60,7 +60,7 @@ class PipelineRunner:
             test_size=self.config.preprocessing.test_size,
             random_state=self.config.preprocessing.random_state
         )
-        self.model = Model(task_type=task_type)
+        self.model = Model(task_type=self.task_type, dev_mode=self.dev_mode)
         self.checker = DataChecks()
         self.recommender = RecommendationEngine()
         
@@ -90,9 +90,12 @@ class PipelineRunner:
             logger.info("[Step 1/8] Loading data...")
             df = self._load_data()
             
-            if self.dev_mode and len(df) > 5000:
-                logger.warning("DEV MODE ACTIVE: Downsampling to 5000 rows.")
-                df = df.sample(n=5000, random_state=42)
+            if self.dev_mode:
+                if len(df) > 5000:
+                    logger.warning("⚙️ DEV MODE ACTIVE: Downsampling to 5000 rows for rapid testing.")
+                    df = df.sample(n=5000, random_state=42)
+                else:
+                    logger.info("⚙️ DEV MODE ACTIVE: Dataset is already under 5000 rows.")
                 
             # Calculate metadata AFTER sampling
             metadata = self.loader.basic_info(df)

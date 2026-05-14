@@ -24,7 +24,19 @@ def main():
     parser.add_argument('--dev-mode', action='store_true', help='Sample 5000 rows for rapid testing')
 
     args = parser.parse_args()
+    
+    # Pass the flag into the runner
+    runner = PipelineRunner(
+        file_path=args.file,
+        target_column=args.target,
+        task_type=args.task,
+        dev_mode=args.dev_mode
+    )
+    
+    runner.run()
 
+    if __name__ == "__main__":
+        main()
     # 2. Validate the file exists before running
     if not os.path.exists(args.file):
         print(f"\n❌ ERROR: Could not find the file at '{args.file}'")
@@ -32,11 +44,11 @@ def main():
 
     # 3. Print a nice header
     print("="*60)
-    print("🚀 ML PIPELINE DEBUGGER INITIALIZED")
+    print("ML PIPELINE DEBUGGER INITIALIZED")
     print("="*60)
-    print(f"📁 Dataset: {args.file}")
-    print(f"🎯 Target:  {args.target}")
-    print(f"⚙️ Task:   {args.task.capitalize()}")
+    print(f"Dataset: {args.file}")
+    print(f"Target:  {args.target}")
+    print(f"Task:   {args.task.capitalize()}")
     print("-" * 60)
 
     # 4. Run YOUR actual backend pipeline
