@@ -3,6 +3,7 @@ import numpy as np
 from typing import Dict, List, Any
 from sklearn.ensemble import IsolationForest
 import logging
+from app.core.config import DiagnosticConfig
 
 logger = logging.getLogger(__name__)
 class DataChecks:
@@ -73,7 +74,8 @@ class DataChecks:
                     ))
         return high_corr
 
-    def check_target_leakage(self, df: pd.DataFrame, target_column: str, threshold: float = 0.95) -> List[Dict[str, Any]]:
+    def check_target_leakage(self, df: pd.DataFrame, target_column: str) -> List[Dict[str, Any]]:
+        threshold = DiagnosticConfig.LEAKAGE_THRESHOLD
         leakage_warnings = []
         if target_column not in df.columns:
             return leakage_warnings

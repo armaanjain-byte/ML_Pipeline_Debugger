@@ -110,7 +110,7 @@ class PipelineRunner:
             y = df[self.target_column]
             
             # Split BEFORE diagnostics
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y if self.task_type == "classification" else None)
             
             # Step 2: Run checks on TRAINING data only
             logger.info("[Step 2/8] Running data quality checks on training data...")
@@ -119,7 +119,7 @@ class PipelineRunner:
             train_df = pd.concat([X_train, y_train], axis=1)
             
             # Pass ONLY train_df to the checker
-            checks_output = self._run_checks(train_df)
+            checks_output = self.checker.run_all_checks(train_df, self.target_column, self.task_type)
             num_issues = len(checks_output.get("issues", []))
             logger.info(f"✓ Found {num_issues} issues")
             
@@ -131,6 +131,7 @@ class PipelineRunner:
             
             # Step 4: Preprocess (NO LEAKAGE)
             logger.info("[Step 4/8] Preprocessing data...")
+            self.model.train(X_train, y_train)
             X_train, X_test, y_train, y_test, feature_names = self._preprocess(df)
             logger.info(
                 f"✓ Train: {X_train.shape}, Test: {X_test.shape}, Features: {len(feature_names)}"

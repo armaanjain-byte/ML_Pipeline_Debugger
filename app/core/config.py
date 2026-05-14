@@ -32,6 +32,8 @@ class DataCheckConfig:
     correlation_threshold: float = 0.9  # High correlation threshold
     imbalance_threshold: float = 0.3  # Minority class % threshold
     duplicate_check: bool = True
+    LEAKAGE_THRESHOLD = 0.90  # Flag any feature with >90% correlation to target
+    CORRELATION_THRESHOLD = 0.85 # Flag multicollinearity between features
 
 
 @dataclass
