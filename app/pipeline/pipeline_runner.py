@@ -84,10 +84,17 @@ class PipelineRunner:
             logger.info("PIPELINE START")
             logger.info("=" * 50)
             
-            # Step 1: Load data
+           # Step 1: Load data
             logger.info("[Step 1/8] Loading data...")
             df = self._load_data()
+            
+            # DEV MODE: Force the dataset to be small so it runs instantly
+            if len(df) > 5000:
+                df = df.sample(n=5000, random_state=42)
+                
+            # Calculate metadata AFTER sampling
             metadata = self.loader.basic_info(df)
+            
             logger.info(
                 f"✓ Loaded {metadata['num_rows']} rows, {metadata['num_columns']} columns"
             )

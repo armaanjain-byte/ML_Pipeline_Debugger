@@ -1,167 +1,102 @@
-
-
-from typing import Dict, List, Any
-
+from typing import Dict, Any, List
 
 class RecommendationEngine:
-    """
-    Converts detected data issues into actionable recommendations.
-    Rule-based system that generates fix suggestions.
-    """
+    """Generates actionable engineering recommendations based on diagnostic issues."""
     
     def generate(self, checks_output: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Main entry point for generating recommendations.
-        
-        Args:
-            checks_output: Output from DataChecks.run_all_checks()
-        
-        Returns:
-            dict: recommendations and priority-sorted list
-        """
-        recommendations = []
         issues = checks_output.get("issues", [])
+        recommendations = []
+        
+        critical_count = 0
         
         for issue in issues:
-            rec = self._generate_for_issue(issue)
-            if rec:
-                recommendations.append(rec)
-        
-        # Sort by severity
-        sorted_recs = self._prioritize(recommendations)
-        
+            rec = {
+                "type": issue["type"],
+                "column": issue["column"],
+                "severity": issue["severity"],
+                "description": issue["description"]
+            }
+            
+            if issue["severity"] == "critical":
+                critical_count += 1
+            
+            if issue["type"] == "target_leakage":
+                rec["action"] = "remove_leaking_feature"
+                rec["recommendations"] = [
+                    "Drop the feature from the dataset immediately.",
+                    "Verify if this data point is actually available at prediction time in production."
+                ]
+                rec["rationale"] = "Features nearly identical to the target indicate data leakage, resulting in artificially high accuracy during training but failure in production."
+
+            elif issue["type"] == "multivariate_outliers":
+                rec["action"] = "investigate_anomalies"
+                rec["recommendations"] = [
+                    "Investigate the root cause of these specific outliers.",
+                    "Consider robust scaling algorithms (e.g., RobustScaler)."
+                ]
+                rec["rationale"] = "Multivariate outliers represent strange combinations of normal data that can severely skew distance-based models."
+
+            elif issue["type"] == "outliers":
+                rec["action"] = "investigate_remove"
+                rec["recommendations"] = [
+                    "Investigate root cause of outliers.",
+                    "Consider log/box-cox transformation.",
+                    "Use robust scaling (median/IQR based)."
+                ]
+                rec["rationale"] = "High outlier percentages may indicate data quality issues or extreme right-skew distributions."
+
+            elif issue["type"] == "high_correlation":
+                rec["action"] = "reduce_multicollinearity"
+                rec["recommendations"] = [
+                    "Drop one of the highly correlated features.",
+                    "Use PCA (Principal Component Analysis) to compress the feature space.",
+                    "Apply L1 (Lasso) or L2 (Ridge) regularization."
+                ]
+                rec["rationale"] = "Highly correlated features inflate model variance and render feature importance calculations unreliable."
+
+            elif issue["type"] == "class_imbalance":
+                rec["action"] = "apply_balancing_techniques"
+                rec["recommendations"] = [
+                    "Implement SMOTE (Synthetic Minority Over-sampling Technique).",
+                    "Configure the `class_weight='balanced'` parameter in the estimator.",
+                    "Evaluate using Precision/Recall AUC or F1-score instead of standard Accuracy."
+                ]
+                rec["rationale"] = "Imbalanced targets cause models to degenerate into predicting the majority class exclusively."
+
+            elif issue["type"] == "missing_values":
+                rec["action"] = "impute_or_drop"
+                rec["recommendations"] = [
+                    "If missing completely at random, utilize median/mode imputation via ColumnTransformer.",
+                    "If missing systematically, consider building a surrogate model for imputation.",
+                    "Drop the column entirely if > 50% of the data is missing."
+                ]
+                rec["rationale"] = "Standard ML algorithms lack native support for processing NaN structures."
+
+            elif issue["type"] == "constant_feature":
+                rec["action"] = "drop_feature"
+                rec["recommendations"] = [
+                    "Drop the feature prior to training."
+                ]
+                rec["rationale"] = "Zero-variance features contain zero information and unnecessarily increase computational overhead."
+
+            elif issue["type"] == "duplicate_rows":
+                rec["action"] = "drop_duplicates"
+                rec["recommendations"] = [
+                    "Run `df.drop_duplicates()` early in the pipeline.",
+                    "Verify if these duplicates are a result of a messy SQL join or mathematically valid repeating events."
+                ]
+                rec["rationale"] = "Duplicate rows artificially over-weight specific data points, causing the model to overfit."
+
+            else:
+                rec["action"] = "review_manually"
+                rec["recommendations"] = ["Conduct a manual review of this feature to determine downstream impact."]
+                rec["rationale"] = "General data anomaly detected."
+                
+            # Ensures EVERY issue caught gets appended to the JSON
+            recommendations.append(rec)
+            
         return {
-            "recommendations": sorted_recs,
+            "recommendations": recommendations,
             "total_issues": len(issues),
-            "critical_issues": sum(1 for r in sorted_recs if r.get("severity") == "high")
+            "critical_issues": critical_count
         }
-    
-    def _generate_for_issue(self, issue: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate recommendation for single issue"""
-        issue_type = issue.get("type")
-        
-        if issue_type == "missing_values":
-            return self._recommend_missing(issue)
-        elif issue_type == "constant_feature":
-            return self._recommend_constant(issue)
-        elif issue_type == "duplicate_rows":
-            return self._recommend_duplicates(issue)
-        elif issue_type == "class_imbalance":
-            return self._recommend_imbalance(issue)
-        elif issue_type == "high_correlation":
-            return self._recommend_correlation(issue)
-        elif issue_type == "outliers":
-            return self._recommend_outliers(issue)
-        
-        return None
-    
-    def _recommend_missing(self, issue: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Recommend strategy for missing values.
-        Strategy depends on percentage missing.
-        """
-        desc = issue.get("description", "")
-        pct = float(desc.split("%")[0]) if "%" in desc else 0
-        
-        if pct > 50:
-            action = "drop_column"
-            rationale = "Too much data missing to impute reliably. Dropping column recommended."
-            urgency = "high"
-        elif pct > 20:
-            action = "advanced_imputation"
-            rationale = "Use KNN or iterative imputation instead of simple median/mode."
-            urgency = "medium"
-        else:
-            action = "simple_imputation"
-            rationale = "Simple imputation (median/mode) is sufficient for < 20% missing."
-            urgency = "low"
-        
-        return {
-            **issue,
-            "action": action,
-            "rationale": rationale,
-            "urgency": urgency
-        }
-    
-    def _recommend_constant(self, issue: Dict[str, Any]) -> Dict[str, Any]:
-        """Recommend dropping constant features"""
-        return {
-            **issue,
-            "action": "drop_column",
-            "rationale": "Features with constant values add no predictive power. Drop immediately.",
-            "urgency": "high"
-        }
-    
-    def _recommend_duplicates(self, issue: Dict[str, Any]) -> Dict[str, Any]:
-        """Recommend handling duplicates"""
-        return {
-            **issue,
-            "action": "remove_duplicates",
-            "rationale": "Exact duplicate rows inflate metrics and introduce information leakage.",
-            "urgency": "high"
-        }
-    
-    def _recommend_imbalance(self, issue: Dict[str, Any]) -> Dict[str, Any]:
-        """Recommend strategy for imbalanced data"""
-        return {
-            **issue,
-            "action": "apply_balancing",
-            "recommendations": [
-                "Use SMOTE (Synthetic Minority Over-sampling)",
-                "Use class_weight parameter in model (automatic balancing)",
-                "Use stratified cross-validation",
-                "Monitor F1-score instead of accuracy"
-            ],
-            "rationale": "Imbalanced classes lead to biased models favoring majority class.",
-            "urgency": "high"
-        }
-    
-    def _recommend_correlation(self, issue: Dict[str, Any]) -> Dict[str, Any]:
-        """Recommend handling high correlation"""
-        col_pair = issue.get("column", "Unknown")
-        corr_val = issue.get("description", "").split(":")[-1] if ":" in issue.get("description", "") else "high"
-        
-        return {
-            **issue,
-            "action": "reduce_multicollinearity",
-            "recommendations": [
-                f"Drop one of the correlated features",
-                "Use PCA (Principal Component Analysis)",
-                "Use regularization (L1/L2)"
-            ],
-            "rationale": f"Multicollinearity ({corr_val}) increases model complexity without benefit.",
-            "urgency": "medium"
-        }
-    
-    def _recommend_outliers(self, issue: Dict[str, Any]) -> Dict[str, Any]:
-        """Recommend handling outliers"""
-        desc = issue.get("description", "")
-        pct = float(desc.split("(")[1].split("%")[0]) if "(" in desc else 0
-        
-        if pct > 10:
-            action = "investigate_remove"
-            rationale = f"High outlier percentage ({pct:.1f}%) may indicate data quality issues."
-        else:
-            action = "transform_or_robust"
-            rationale = "Consider log transformation or robust scaling to reduce outlier impact."
-        
-        return {
-            **issue,
-            "action": action,
-            "recommendations": [
-                "Investigate root cause of outliers",
-                "Consider log/box-cox transformation",
-                "Use robust scaling (median/IQR based)"
-            ],
-            "rationale": rationale,
-            "urgency": "medium"
-        }
-    
-    def _prioritize(self, recommendations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Sort recommendations by severity (high → medium → low)"""
-        severity_order = {"high": 0, "medium": 1, "low": 2}
-        
-        return sorted(
-            recommendations,
-            key=lambda x: severity_order.get(x.get("severity"), 99)
-        )

@@ -3,7 +3,6 @@ import numpy as np
 from typing import Dict, List, Any
 from sklearn.ensemble import IsolationForest
 
-
 class DataChecks:
     """
     Comprehensive data validation.
@@ -11,9 +10,6 @@ class DataChecks:
     """
     
     def run_all_checks(self, df: pd.DataFrame, target_column: str, task_type: str = "classification") -> Dict[str, Any]:
-        """
-        Run all checks and return structured output.
-        """
         return {
             "missing_values": self.check_missing_values(df),
             "constant_features": self.check_constant_features(df),
@@ -35,16 +31,13 @@ class DataChecks:
     
     def check_duplicates(self, df: pd.DataFrame) -> Dict[str, Any]:
         num_duplicates = int(df.duplicated().sum())
-        dup_pct = float(num_duplicates / len(df) * 100)
-        
         return {
             "total_duplicates": num_duplicates,
-            "duplicate_percentage": dup_pct,
+            "duplicate_percentage": float(num_duplicates / len(df) * 100) if len(df) > 0 else 0.0,
             "has_duplicates": num_duplicates > 0
         }
     
     def check_class_imbalance(self, df: pd.DataFrame, target_column: str, task_type: str) -> Dict[str, Any]:
-        # Do not check class imbalance for continuous regression targets
         if target_column not in df.columns or task_type == "regression":
             return {}
         
@@ -76,13 +69,9 @@ class DataChecks:
                         corr_matrix.columns[j],
                         float(corr_matrix.iloc[i, j])
                     ))
-        
         return high_corr
 
     def check_target_leakage(self, df: pd.DataFrame, target_column: str, threshold: float = 0.95) -> List[Dict[str, Any]]:
-        """
-        Detects features that have suspiciously high correlation with the target.
-        """
         leakage_warnings = []
         if target_column not in df.columns:
             return leakage_warnings
@@ -90,26 +79,125 @@ class DataChecks:
         numeric_df = df.select_dtypes(include=[np.number])
         if target_column in numeric_df.columns:
             correlations = numeric_df.corr()[target_column].abs()
-            
             for col, corr in correlations.items():
                 if col != target_column and corr > threshold:
                     leakage_warnings.append({
                         "column": col,
                         "correlation": float(corr)
                     })
-                    
         return leakage_warnings
 
     def check_multivariate_outliers(self, df: pd.DataFrame, contamination: float = 0.05) -> Dict[str, Any]:
-        """
-        Detects multivariate anomalies using Isolation Forest.
-        """
         numeric_df = df.select_dtypes(include=[np.number]).dropna()
-        
         if numeric_df.empty or len(numeric_df) < 50:
             return {"count": 0, "percentage": 0.0, "has_outliers": False}
         
         iso = IsolationForest(contamination=contamination, random_state=42)
         predictions = iso.fit_predict(numeric_df)
         
-        outlier_count = int
+        outlier_count = int((predictions == -1).sum())
+        outlier_pct = float((outlier_count / len(numeric_df)) * 100)
+        
+        return {
+            "count": outlier_count,
+            "percentage": outlier_pct,
+            "has_outliers": outlier_pct > 0
+        }
+    
+    def check_data_types(self, df: pd.DataFrame) -> Dict[str, str]:
+        return df.dtypes.astype(str).to_dict()
+    
+    def check_outliers(self, df: pd.DataFrame, target_column: str, iqr_multiplier: float = 1.5) -> Dict[str, int]:
+        numeric_df = df.select_dtypes(include=[np.number])
+        outliers = {}
+        for col in numeric_df.columns:
+            # THE FIX: Skip target column AND any binary columns (like SeniorCitizen)
+            if col == target_column or numeric_df[col].nunique() <= 2:
+                continue
+                
+            Q1 = numeric_df[col].quantile(0.25)
+            Q3 = numeric_df[col].quantile(0.75)
+            IQR = Q3 - Q1
+            lower_bound = Q1 - (iqr_multiplier * IQR)
+            upper_bound = Q3 + (iqr_multiplier * IQR)
+            
+            outlier_count = ((numeric_df[col] < lower_bound) | (numeric_df[col] > upper_bound)).sum()
+            if outlier_count > 0:
+                outliers[col] = int(outlier_count)
+        return outliers
+    
+    def _summarize_issues(self, df: pd.DataFrame, target_column: str, task_type: str) -> List[Dict[str, Any]]:
+        issues = []
+        
+        for col, pct in self.check_missing_values(df).items():
+            severity = "high" if pct > 50 else "medium" if pct > 20 else "low"
+            issues.append({
+                "type": "missing_values",
+                "column": col,
+                "severity": severity,
+                "description": f"{pct:.1f}% missing values"
+            })
+        
+        for col in self.check_constant_features(df):
+            issues.append({
+                "type": "constant_feature",
+                "column": col,
+                "severity": "high",
+                "description": "Feature has only one unique value"
+            })
+        
+        dup_info = self.check_duplicates(df)
+        if dup_info and dup_info.get("has_duplicates"):
+            issues.append({
+                "type": "duplicate_rows",
+                "column": "dataset_wide",
+                "severity": "medium",
+                "description": f"{dup_info['total_duplicates']} duplicate rows ({dup_info['duplicate_percentage']:.1f}%)"
+            })
+        
+        imbalance = self.check_class_imbalance(df, target_column, task_type)
+        if imbalance and imbalance.get("is_imbalanced"):
+            issues.append({
+                "type": "class_imbalance",
+                "column": target_column,
+                "severity": "high",
+                "description": f"Minority class: {imbalance['minority_class_percentage']:.1f}%"
+            })
+        
+        for col1, col2, corr in self.check_high_correlation(df):
+            issues.append({
+                "type": "high_correlation",
+                "column": f"{col1} ↔ {col2}",
+                "severity": "medium",
+                "description": f"Correlation: {corr:.3f}"
+            })
+
+        for leak in self.check_target_leakage(df, target_column):
+            issues.append({
+                "type": "target_leakage",
+                "column": leak["column"],
+                "severity": "critical",
+                "description": f"Suspected leakage: correlation with target is {leak['correlation']:.3f}"
+            })
+
+        multi_outliers = self.check_multivariate_outliers(df)
+        if multi_outliers and multi_outliers.get("has_outliers"):
+            severity = "high" if multi_outliers["percentage"] > 5 else "medium"
+            issues.append({
+                "type": "multivariate_outliers",
+                "column": "dataset_wide",
+                "severity": severity,
+                "description": f"Detected {multi_outliers['count']} multivariate outliers ({multi_outliers['percentage']:.1f}%)"
+            })
+        
+        for col, count in self.check_outliers(df, target_column).items():
+            pct = (count / len(df)) * 100
+            severity = "high" if pct > 10 else "medium" if pct > 5 else "low"
+            issues.append({
+                "type": "outliers",
+                "column": col,
+                "severity": severity,
+                "description": f"{count} outliers ({pct:.1f}%)"
+            })
+        
+        return issues

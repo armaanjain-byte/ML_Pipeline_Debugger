@@ -14,9 +14,20 @@ class Model:
         self.random_state = random_state
         
         if self.task_type == "regression":
-            self.model = RandomForestRegressor(random_state=self.random_state)
+            # Added n_estimators and max_depth for lightning-fast training
+            self.model = RandomForestRegressor(
+                n_estimators=10, 
+                max_depth=5, 
+                random_state=self.random_state, 
+                n_jobs=-1
+            )
         elif self.task_type == "classification":
-            self.model = RandomForestClassifier(random_state=self.random_state)
+            self.model = RandomForestClassifier(
+                n_estimators=10, 
+                max_depth=5, 
+                random_state=self.random_state, 
+                n_jobs=-1
+            )
         else:
             raise ValueError(f"Unsupported task_type: {self.task_type}")
 
