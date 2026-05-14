@@ -1,12 +1,3 @@
-"""
-FIXED: tests/test_preprocessing.py
-
-CRITICAL TESTS:
-- NO data leakage (split before fit)
-- Encoding works correctly
-- Missing values handled
-- Edge cases covered
-"""
 
 import pandas as pd
 import numpy as np

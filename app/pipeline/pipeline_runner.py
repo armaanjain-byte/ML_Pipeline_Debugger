@@ -1,13 +1,3 @@
-"""
-FIXED: app/pipeline/pipeline_runner.py
-
-CRITICAL CHANGES:
-- Fixed all method calls (load vs load_data, etc)
-- Proper exception handling
-- Logging at every step
-- Correct data flow
-- Structured output
-"""
 
 from typing import Dict, Any
 import numpy as np

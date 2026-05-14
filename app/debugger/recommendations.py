@@ -1,12 +1,4 @@
-"""
-FIXED: app/debugger/recommendations.py
 
-CHANGES:
-- Structured recommendations with actions
-- Priority-based sorting
-- Severity levels
-- Actionable remediation steps
-"""
 
 from typing import Dict, List, Any
 

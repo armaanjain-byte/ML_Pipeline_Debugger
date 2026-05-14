@@ -1,12 +1,4 @@
-"""
-FIXED: tests/test_model.py
 
-TESTS FOR:
-- All classification metrics (accuracy, precision, recall, F1, ROC-AUC)
-- All regression metrics (RMSE, MAE, R²)
-- Feature importance
-- Error handling
-"""
 
 import numpy as np
 import pytest

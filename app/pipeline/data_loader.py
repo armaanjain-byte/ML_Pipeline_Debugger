@@ -1,11 +1,3 @@
-"""
-FIXED: app/pipeline/data_loader.py
-
-CHANGES:
-- Custom exceptions for error handling
-- Better validation
-- Structured metadata output
-"""
 
 import pandas as pd
 from typing import Dict, Any

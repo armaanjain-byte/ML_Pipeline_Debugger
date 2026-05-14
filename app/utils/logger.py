@@ -1,9 +1,4 @@
-"""
-NEW FILE: app/utils/logger.py
 
-Structured logging for pipeline.
-Singleton pattern for single logger instance.
-"""
 
 import logging
 import sys

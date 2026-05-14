@@ -1,9 +1,4 @@
-"""
-NEW FILE: app/core/exceptions.py
 
-Custom exceptions for graceful error handling.
-Allows pipeline to fail cleanly with structured messages.
-"""
 
 class PipelineException(Exception):
     """Base exception for all pipeline errors"""

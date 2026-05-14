@@ -1,9 +1,3 @@
-"""
-FIXED: app/core/config.py
-
-Centralized configuration.
-No hardcoded thresholds scattered everywhere.
-"""
 
 from dataclasses import dataclass
 from typing import Optional
