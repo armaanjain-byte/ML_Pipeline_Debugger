@@ -100,3 +100,15 @@ class Model:
             f"cv_std_{scoring.replace('neg_', '')}": float(scores.std()),
             "cv_folds": cv
         }
+    def feature_importance(self, feature_names: List[str]) -> Dict[str, float]:
+        """Extracts feature importance from the trained random forest."""
+        if self.pipeline is None:
+            return {}
+    
+    # Access the estimator from the pipeline
+        importance = self.pipeline.named_steps['estimator'].feature_importances_
+    
+    # Note: If using OneHotEncoder, feature names might change. 
+    # For now, we match them to the input names.
+        feat_imp = dict(zip(feature_names, importance))
+        return dict(sorted(feat_imp.items(), key=lambda item: item[1], reverse=True))

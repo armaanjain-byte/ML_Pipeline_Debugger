@@ -25,15 +25,7 @@ def main():
 
     args = parser.parse_args()
     
-    # Pass the flag into the runner
-    runner = PipelineRunner(
-        file_path=args.file,
-        target_column=args.target,
-        task_type=args.task,
-        dev_mode=args.dev_mode
-    )
     
-    runner.run()
 
     if __name__ == "__main__":
         main()
@@ -56,14 +48,15 @@ def main():
         runner = PipelineRunner(
             file_path=args.file,
             target_column=args.target,
-            task_type=args.task
+            task_type=args.task,
+            dev_mode=args.dev_mode
         )
 
         output = runner.run()
 
         # 5. Output the Recommendations
         print("\n" + "="*60)
-        print("🔍 DIAGNOSTIC RECOMMENDATIONS")
+        print("DIAGNOSTIC RECOMMENDATIONS")
         print("="*60)
         
         if output.get("recommendations"):
