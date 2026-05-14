@@ -91,47 +91,44 @@ class DataChecks:
                     })
         return leakage_warnings
 
+    
+
     # app/debugger/data_checks.py
 
-def check_multivariate_outliers(self, df: pd.DataFrame) -> Dict[str, Any]:
+def check_all_outliers(self, df: pd.DataFrame, target_column: str) -> Dict[str, Any]:
+    """Single pass to detect both univariate and multivariate outliers."""
     numeric_df = df.select_dtypes(include=[np.number]).dropna()
-    if numeric_df.empty or len(numeric_df) < 50:
-         return {"count": 0, "percentage": 0.0, "has_outliers": False, "outlier_indices": []}
+    results = {"univariate": {}, "multivariate": {}}
     
-    # 'auto' allows the model to decide if anomalies actually exist
-    iso = IsolationForest(contamination="auto", random_state=42)
-    predictions = iso.fit_predict(numeric_df)
+    if numeric_df.empty:
+        return results
+
+    # 1. Univariate (IQR Method) - Fast pass
+    for col in numeric_df.columns:
+        if col == target_column or numeric_df[col].nunique() <= 2:
+            continue
+        q1, q3 = numeric_df[col].quantile([0.25, 0.75])
+        iqr = q3 - q1
+        count = ((numeric_df[col] < (q1 - 1.5 * iqr)) | (numeric_df[col] > (q3 + 1.5 * iqr))).sum()
+        if count > 0:
+            results["univariate"][col] = int(count)
+
+    # 2. Multivariate (Isolation Forest) - Only if dataset is large enough
+    if len(numeric_df) >= 50:
+        iso = IsolationForest(contamination="auto", random_state=42)
+        preds = iso.fit_predict(numeric_df)
+        outlier_indices = numeric_df.index[preds == -1].tolist()
+        results["multivariate"] = {
+            "count": len(outlier_indices),
+            "percentage": (len(outlier_indices) / len(numeric_df)) * 100,
+            "indices": outlier_indices[:10]
+        }
     
-    outlier_indices = numeric_df.index[predictions == -1].tolist()
-    outlier_count = len(outlier_indices)
-    
-    return {
-        "count": outlier_count,
-        "percentage": float((outlier_count / len(numeric_df)) * 100),
-        "has_outliers": outlier_count > 0,
-        "outlier_indices": outlier_indices[:10] # Return top 10 for inspection
-    }
+    return results
+
     def check_data_types(self, df: pd.DataFrame) -> Dict[str, str]:
         return df.dtypes.astype(str).to_dict()
     
-    def check_outliers(self, df: pd.DataFrame, target_column: str, iqr_multiplier: float = 1.5) -> Dict[str, int]:
-        numeric_df = df.select_dtypes(include=[np.number])
-        outliers = {}
-        for col in numeric_df.columns:
-            # THE FIX: Skip target column AND any binary columns (like SeniorCitizen)
-            if col == target_column or numeric_df[col].nunique() <= 2:
-                continue
-                
-            Q1 = numeric_df[col].quantile(0.25)
-            Q3 = numeric_df[col].quantile(0.75)
-            IQR = Q3 - Q1
-            lower_bound = Q1 - (iqr_multiplier * IQR)
-            upper_bound = Q3 + (iqr_multiplier * IQR)
-            
-            outlier_count = ((numeric_df[col] < lower_bound) | (numeric_df[col] > upper_bound)).sum()
-            if outlier_count > 0:
-                outliers[col] = int(outlier_count)
-        return outliers
     
     def _summarize_issues(self, df: pd.DataFrame, target_column: str, task_type: str) -> List[Dict[str, Any]]:
         issues = []

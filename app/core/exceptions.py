@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 
 class PipelineDiagnosticError(Exception):
     """Exception raised when the pipeline fails but has diagnostic data."""
-    def __init__(self, message: str, diagnostics: Optional[Dict[str, Any]]):
+    def __init__(self, message: str, diagnostics: Optional[Dict[str, Any]]= None):
         super().__init__(message)
         self.diagnostics = diagnostics or {}
 

@@ -8,6 +8,9 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
+import logging
+
+logger = logging.getLogger(__name__)
 
 class Model:
     def __init__(self, task_type: str, estimator=None, dev_mode: bool = False):
@@ -20,17 +23,22 @@ class Model:
         """Dynamically builds a preprocessing pipeline based on data types."""
         numeric_features = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
         categorical_features = X.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
+        
+        for col in categorical_features:
+             unique_count = X[col].nunique()
+             if unique_count > 100:
+                  logger.warning(f"Feature '{col}' has high cardinality ({unique_count} unique values). Consider Target Encoding.")
 
+# Use sparse_output=True if the data is large to save memory
+        categorical_transformer = Pipeline(steps=[
+             ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=True)) 
+        ])
         # Route 1: Scale numbers
         numeric_transformer = Pipeline(steps=[
             ('scaler', StandardScaler())
         ])
 
-        # Route 2: Convert strings to numbers (ignore unknown categories in test data)
-        categorical_transformer = Pipeline(steps=[
-            ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
-        ])
-
+    
         # Combine routes
         preprocessor = ColumnTransformer(
             transformers=[
