@@ -1,14 +1,19 @@
 import numpy as np
+import pandas as pd
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.model_selection import cross_val_score
 from typing import Dict, Any, List
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
 
 class Model:
     """
     Handles model initialization, training, evaluation, and cross-validation.
     """
+
     def __init__(self, task_type: str = "regression", random_state: int = 42):
         self.task_type = task_type
         self.random_state = random_state
@@ -30,6 +35,8 @@ class Model:
             )
         else:
             raise ValueError(f"Unsupported task_type: {self.task_type}")
+    
+    
 
     def train(self, X_train: np.ndarray, y_train: np.ndarray) -> None:
         self.model.fit(X_train, y_train)
@@ -103,3 +110,21 @@ class Model:
         }
         
         return sorted_importance
+    # app/pipeline/model.py
+
+
+def _build_pipeline(self, X: pd.DataFrame):
+    numeric_features = X.select_dtypes(include=['int64', 'float64']).columns
+    categorical_features = X.select_dtypes(include=['object', 'category']).columns
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('num', StandardScaler(), numeric_features),
+            ('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), categorical_features)
+        ])
+    
+    # Bind the preprocessor and the model together
+    self.pipeline = Pipeline(steps=[
+        ('preprocessor', preprocessor),
+        ('classifier', self.model)
+    ])

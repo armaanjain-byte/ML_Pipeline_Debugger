@@ -21,6 +21,7 @@ def main():
     parser.add_argument('--task', choices=['regression', 'classification'], 
                         default='regression',
                         help='Type of ML task (default: regression)')
+    parser.add_argument('--dev-mode', action='store_true', help='Sample 5000 rows for rapid testing')
 
     args = parser.parse_args()
 

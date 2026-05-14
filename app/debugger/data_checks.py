@@ -2,7 +2,9 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Any
 from sklearn.ensemble import IsolationForest
+import logging
 
+logger = logging.getLogger(__name__)
 class DataChecks:
     """
     Comprehensive data validation.
@@ -87,23 +89,26 @@ class DataChecks:
                     })
         return leakage_warnings
 
-    def check_multivariate_outliers(self, df: pd.DataFrame, contamination: float = 0.05) -> Dict[str, Any]:
-        numeric_df = df.select_dtypes(include=[np.number]).dropna()
-        if numeric_df.empty or len(numeric_df) < 50:
-            return {"count": 0, "percentage": 0.0, "has_outliers": False}
-        
-        iso = IsolationForest(contamination=contamination, random_state=42)
-        predictions = iso.fit_predict(numeric_df)
-        
-        outlier_count = int((predictions == -1).sum())
-        outlier_pct = float((outlier_count / len(numeric_df)) * 100)
-        
-        return {
-            "count": outlier_count,
-            "percentage": outlier_pct,
-            "has_outliers": outlier_pct > 0
-        }
+    # app/debugger/data_checks.py
+
+def check_multivariate_outliers(self, df: pd.DataFrame) -> Dict[str, Any]:
+    numeric_df = df.select_dtypes(include=[np.number]).dropna()
+    if numeric_df.empty or len(numeric_df) < 50:
+         return {"count": 0, "percentage": 0.0, "has_outliers": False, "outlier_indices": []}
     
+    # 'auto' allows the model to decide if anomalies actually exist
+    iso = IsolationForest(contamination="auto", random_state=42)
+    predictions = iso.fit_predict(numeric_df)
+    
+    outlier_indices = numeric_df.index[predictions == -1].tolist()
+    outlier_count = len(outlier_indices)
+    
+    return {
+        "count": outlier_count,
+        "percentage": float((outlier_count / len(numeric_df)) * 100),
+        "has_outliers": outlier_count > 0,
+        "outlier_indices": outlier_indices[:10] # Return top 10 for inspection
+    }
     def check_data_types(self, df: pd.DataFrame) -> Dict[str, str]:
         return df.dtypes.astype(str).to_dict()
     

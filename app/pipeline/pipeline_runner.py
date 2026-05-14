@@ -1,4 +1,5 @@
-
+from sklearn.model_selection import train_test_split
+import pandas as pd
 from typing import Dict, Any
 import numpy as np
 
@@ -35,7 +36,8 @@ class PipelineRunner:
         file_path: str,
         target_column: str,
         task_type: str,
-        config: PipelineConfig = None
+        config: PipelineConfig = None,
+        dev_mode: bool = False
     ):
         """
         Initialize pipeline.
@@ -50,7 +52,7 @@ class PipelineRunner:
         self.target_column = target_column
         self.task_type = task_type
         self.config = config or PipelineConfig()
-        
+        self.dev_mode = dev_mode
         # Initialize components
         self.loader = DataLoader(file_path)
         self.preprocessor = Preprocessor(
@@ -88,8 +90,8 @@ class PipelineRunner:
             logger.info("[Step 1/8] Loading data...")
             df = self._load_data()
             
-            # DEV MODE: Force the dataset to be small so it runs instantly
-            if len(df) > 5000:
+            if self.dev_mode and len(df) > 5000:
+                logger.warning("DEV MODE ACTIVE: Downsampling to 5000 rows.")
                 df = df.sample(n=5000, random_state=42)
                 
             # Calculate metadata AFTER sampling
@@ -99,9 +101,22 @@ class PipelineRunner:
                 f"✓ Loaded {metadata['num_rows']} rows, {metadata['num_columns']} columns"
             )
             
-            # Step 2: Run checks BEFORE preprocessing
-            logger.info("[Step 2/8] Running data quality checks...")
-            checks_output = self._run_checks(df)
+           
+            # Separate features and target first
+            X = df.drop(columns=[self.target_column])
+            y = df[self.target_column]
+            
+            # Split BEFORE diagnostics
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+            
+            # Step 2: Run checks on TRAINING data only
+            logger.info("[Step 2/8] Running data quality checks on training data...")
+            
+            # Recombine training data purely for the diagnostic engine
+            train_df = pd.concat([X_train, y_train], axis=1)
+            
+            # Pass ONLY train_df to the checker
+            checks_output = self._run_checks(train_df)
             num_issues = len(checks_output.get("issues", []))
             logger.info(f"✓ Found {num_issues} issues")
             
