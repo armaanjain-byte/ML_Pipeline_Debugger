@@ -1,3 +1,15 @@
+# app/core/exceptions.py
+
+from typing import Any, Dict, Optional
+
+
+class PipelineDiagnosticError(Exception):
+    """Exception raised when the pipeline fails but has diagnostic data."""
+    def __init__(self, message: str, diagnostics: Optional[Dict[str, Any]]):
+        super().__init__(message)
+        self.diagnostics = diagnostics or {}
+
+
 
 
 class PipelineException(Exception):

@@ -10,12 +10,12 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 
 class Model:
-    def __init__(self, task_type: str, random_state: int = 42, dev_mode: bool = False):
+    def __init__(self, task_type: str, estimator=None, dev_mode: bool = False):
         self.task_type = task_type
-        self.random_state = random_state
+        # If no estimator is provided, default to RF, but allow injection
+        self.custom_estimator = estimator 
+        self.dev_mode = dev_mode
         self.pipeline = None
-        self.feature_names_in_ = None
-        self.dev_mode = dev_mode 
     def _build_pipeline(self, X: pd.DataFrame):
         """Dynamically builds a preprocessing pipeline based on data types."""
         numeric_features = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
@@ -100,15 +100,27 @@ class Model:
             f"cv_std_{scoring.replace('neg_', '')}": float(scores.std()),
             "cv_folds": cv
         }
-    def feature_importance(self, feature_names: List[str]) -> Dict[str, float]:
-        """Extracts feature importance from the trained random forest."""
-        if self.pipeline is None:
-            return {}
+    # app/pipeline/model.py
+
+def feature_importance(self) -> Dict[str, float]:
+    """Dynamically extracts feature importance using pipeline-generated names."""
+    if self.pipeline is None:
+        return {}
+
+    # 1. Get the fitted preprocessor and estimator
+    preprocessor = self.pipeline.named_steps['preprocessor']
+    estimator = self.pipeline.named_steps['estimator']
     
-    # Access the estimator from the pipeline
-        importance = self.pipeline.named_steps['estimator'].feature_importances_
+    # 2. Extract the actual feature names after transformation
+    # This handles the expansion caused by OneHotEncoding
+    try:
+        feature_names = preprocessor.get_feature_names_out()
+    except Exception:
+        # Fallback if names can't be retrieved
+        return {"error": "Could not extract feature names from preprocessor"}
+
+    importance = estimator.feature_importances_
     
-    # Note: If using OneHotEncoder, feature names might change. 
-    # For now, we match them to the input names.
-        feat_imp = dict(zip(feature_names, importance))
-        return dict(sorted(feat_imp.items(), key=lambda item: item[1], reverse=True))
+    # 3. Zip and sort
+    feat_imp = dict(zip(feature_names, importance))
+    return dict(sorted(feat_imp.items(), key=lambda item: item[1], reverse=True))

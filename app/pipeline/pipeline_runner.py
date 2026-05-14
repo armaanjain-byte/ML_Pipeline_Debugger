@@ -145,3 +145,26 @@ class PipelineRunner:
             "model_metrics": None,
             "feature_importance": None
         }
+    
+
+def _apply_auto_fixes(self, df: pd.DataFrame, diagnostics: Dict[str, Any]) -> pd.DataFrame:
+    """Automatically removes problematic features identified by DataChecks."""
+    cols_to_drop = set()
+
+    # 1. Drop Target Leakage
+    for leak in diagnostics.get("target_leakage", []):
+        cols_to_drop.add(leak["column"])
+        self.logger.warning(f"AUTO-FIX: Dropping {leak['column']} due to target leakage.")
+
+    # 2. Drop Constant Features
+    for col in diagnostics.get("constant_features", []):
+        cols_to_drop.add(col)
+        self.logger.warning(f"AUTO-FIX: Dropping {col} - feature is constant.")
+
+    # 3. Handle High Correlation (Drop the second column in the pair)
+    for col1, col2, corr in diagnostics.get("high_correlation", []):
+        if col2 not in cols_to_drop:
+            cols_to_drop.add(col2)
+            self.logger.warning(f"AUTO-FIX: Dropping {col2} - highly correlated with {col1}.")
+
+    return df.drop(columns=list(cols_to_drop))

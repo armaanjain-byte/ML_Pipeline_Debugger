@@ -27,8 +27,7 @@ def main():
     
     
 
-    if __name__ == "__main__":
-        main()
+   
     # 2. Validate the file exists before running
     if not os.path.exists(args.file):
         print(f"\n❌ ERROR: Could not find the file at '{args.file}'")
