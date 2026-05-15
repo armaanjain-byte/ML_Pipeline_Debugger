@@ -1,30 +1,29 @@
 # ML Pipeline Debugger & Orchestrator
 
-An automated MLOps diagnostic orchestrator designed to intercept, analyze, and prevent silent failures in Machine Learning pipelines prior to model training.
+An automated MLOps diagnostic middleware designed to intercept, analyze, and prevent silent failures in Machine Learning pipelines prior to model training.
 
-## Overview
+## 📌 Project Overview
 
-Machine learning models rarely fail due to algorithmic inaccuracies; they fail due to flawed data architecture. Target leakage, extreme multicollinearity, out-of-vocabulary categorical drift, and class imbalances often pass silently through standard preprocessing pipelines, resulting in deployed models that degrade in production.
+Machine learning models rarely fail due to algorithmic inaccuracies; they fail due to flawed data architecture. Issues like target leakage, extreme multicollinearity, and class imbalances often pass silently through standard preprocessing, resulting in models that look accurate in training but degrade in production.
 
-This tool acts as a middleware validation layer. It intercepts raw datasets, executes a comprehensive suite of statistical diagnostics, generates actionable engineering recommendations, and only proceeds to model compilation if the data architecture is sound.
+This tool acts as a **middleware validation layer**. It intercepts raw datasets, executes a comprehensive suite of statistical diagnostics, and generates actionable engineering recommendations. It ensures model compilation only proceeds if the underlying data architecture is sound.
 
-## Core Capabilities
+## ✨ Core Capabilities
 
-* **Pre-emptive Data Validation:** Detects zero-variance features, class imbalance (for classification tasks), and high-correlation matrices.
-* **Target Leakage Detection:** Scans for variables exhibiting suspiciously high correlation with the dependent variable to prevent artificial accuracy inflation.
-* **Zero-Leakage Architecture:** Strict isolation of imputation and scaling parameters to the training distribution using native scikit-learn Pipelines, completely eliminating test-set data leakage.
-* **Multivariate Anomaly Detection:** Utilizes Isolation Forests to flag complex statistical outliers across continuous features.
-* **Cross-Validated Evaluation:** Implements K-Fold Cross-Validation to assess true model stability and variance, moving beyond simple holdout metrics.
-* **Automated Diagnostics:** Outputs a structured JSON payload of specific architectural actions based on failure severity.
+* **Zero-Leakage Architecture**: Enforces strict isolation of imputation and scaling parameters to the training distribution using native scikit-learn Pipelines, eliminating test-set contamination.
+* **Pre-emptive Data Validation**: Detects zero-variance features, class imbalances, and high-correlation matrices before resources are spent on training.
+* **Target Leakage Detection**: Scans for variables exhibiting suspiciously high correlation with the dependent variable to prevent artificial accuracy inflation.
+* **Statistical Anomaly Detection**: Utilizes **Isolation Forests** to flag complex multivariate outliers and IQR methods for univariate anomalies.
+* **Automated Diagnostics**: Outputs a structured JSON payload of specific architectural actions based on failure severity (Critical, High, Medium, Low).
 
-## System Architecture
+## 🏗 System Architecture
 
 The system utilizes strict Object-Oriented principles, separating the orchestrator layer from the diagnostic engines to allow for modular testing and scaling.
 
 ```text
 ML_Pipeline_Debugger/
 ├── app/
-│   ├── core/              # Global configurations and Exception classes
+│   ├── core/              # Global configurations and custom Exception classes
 │   ├── debugger/          # Diagnostic engines (DataChecks, Recommendations)
 │   ├── pipeline/          # Execution layers (DataLoader, Preprocessor, Model)
 │   └── utils/             # System logging framework
@@ -35,79 +34,60 @@ ML_Pipeline_Debugger/
 
 ```
 
-## Installation
+## 🚀 Getting Started
 
-Clone the repository and initialize the Python environment:
+### Installation
+
+Clone the repository and initialize the environment:
 
 ```bash
 git clone https://github.com/armaanjain-byte/ML_Pipeline_Debugger.git
 cd ML_Pipeline_Debugger
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 ```
 
-## Command Line Interface (CLI) Usage
+### CLI Usage
 
-The orchestrator is accessed via the `main.py` entry point.
+The orchestrator is accessed via the `main.py` entry point:
 
 ```bash
-python main.py --file data/dataset.csv --target target_column --task regression
+python main.py --file data/dataset.csv --target target_column --task classification
 
 ```
 
 **Arguments:**
 
-* `--file` `-f`: Path to the target dataset (CSV format).
-* `--target` `-t`: The dependent variable for model prediction.
-* `--task`: Type of machine learning task (`regression` or `classification`). Defaults to regression.
+* `--file` / `-f`: Path to the target dataset (CSV).
+* `--target` / `-t`: The dependent variable for prediction.
+* `--task`: Type of ML task (`regression` or `classification`).
+* `--dev-mode`: Optional flag to sample data for rapid iteration.
 
-## Example Output
+## 📊 Diagnostic Intelligence
 
-When executed on a compromised dataset, the diagnostic engine isolates specific variables and provides resolution strategies:
+When executed, the engine generates a structured diagnostic report:
 
 ```json
 {
-    "recommendations": [
-        {
-            "type": "target_leakage",
-            "column": "suspicious_feature",
-            "severity": "critical",
-            "description": "Suspected leakage: correlation with target is 0.985",
-            "action": "remove_leaking_feature",
-            "recommendations": [
-                "Drop the feature from the dataset immediately",
-                "Verify if this data point is actually available at prediction time"
-            ],
-            "rationale": "Features perfectly correlated with the target usually indicate data leakage from the future.",
-            "urgency": "critical"
-        },
-        {
-            "type": "multivariate_outliers",
-            "column": "dataset_wide",
-            "severity": "medium",
-            "description": "Detected 42 multivariate outliers (3.6%)",
-            "action": "investigate_anomalies",
-            "recommendations": [
-                "Investigate root cause of outliers",
-                "Consider robust scaling (median/IQR based)"
-            ],
-            "rationale": "Multivariate outliers can heavily skew distance-based models and regressions.",
-            "urgency": "medium"
-        }
-    ],
-    "total_issues": 2,
-    "critical_issues": 1
+    "type": "target_leakage",
+    "column": "suspicious_feature",
+    "severity": "critical",
+    "description": "Suspected leakage: correlation with target is 0.985",
+    "action": "remove_leaking_feature",
+    "rationale": "Features perfectly correlated with the target usually indicate data leakage from the future.",
+    "urgency": "critical"
 }
 
 ```
 
-## Testing Methodology
+## 🛠 Engineering Standards
 
-This system utilizes `pytest` for pipeline validation. Ensure all dependencies are installed before running the test suite.
+* **Robust Preprocessing**: Dynamically builds pipelines using `ColumnTransformer` to handle numeric scaling and categorical encoding (One-Hot) correctly.
+* **Cross-Validated Evaluation**: Implements K-Fold Cross-Validation to assess true model stability beyond simple holdout metrics.
+* **Defensive Programming**: Includes custom exception handling for data loading and preprocessing failures to ensure graceful system exits.
 
-```bash
-python -m pytest tests/ -v
+---
 
-```
+*Developed by Armaan Jain - Focused on building reliable, production-ready AI systems.*
