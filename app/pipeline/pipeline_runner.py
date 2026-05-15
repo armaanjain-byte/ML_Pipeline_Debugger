@@ -58,6 +58,8 @@ class PipelineRunner:
             # Step 1: Load and Sample
             logger.info("[Step 1/8] Loading data...")
             df = self.loader.load_data()
+            if df is None or df.empty:
+                raise DataLoadException("Dataset is empty or could not be loaded.")
             
             if self.dev_mode and len(df) > 5000:
                 logger.warning("⚙️ DEV MODE ACTIVE: Downsampling to 5000 rows.")
@@ -131,9 +133,12 @@ class PipelineRunner:
                 "error": None
             }
         
+        except DataLoadException as e:
+            logger.error(f"Data Load Failure: {str(e)}")
+            return self._failure_response(f"Data Error: {str(e)}")
         except Exception as e:
-            logger.error(f"PIPELINE CRITICAL FAILURE: {str(e)}", exc_info=True)
-            return self._failure_response(str(e))
+            logger.error(f"Unexpected Pipeline Failure: {str(e)}", exc_info=True)
+            return self._failure_response(f"System Error: {str(e)}")
 
     def _failure_response(self, error_msg: str) -> Dict[str, Any]:
         return {

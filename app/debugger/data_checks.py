@@ -6,13 +6,19 @@ import logging
 from app.core.config import DiagnosticConfig
 
 logger = logging.getLogger(__name__)
+
 class DataChecks:
     """
-    Comprehensive data validation.
-    Runs BEFORE preprocessing to detect issues.
+    Comprehensive data validation engine.
+    Performs statistical diagnostics on raw training data to identify 
+    architectural flaws before model training.
     """
     
     def run_all_checks(self, df: pd.DataFrame, target_column: str, task_type: str = "classification") -> Dict[str, Any]:
+        """Executes the full suite of data diagnostics."""
+        # We consolidate outlier detection into one method for efficiency
+        outlier_results = self.check_all_outliers(df, target_column)
+        
         return {
             "missing_values": self.check_missing_values(df),
             "constant_features": self.check_constant_features(df),
@@ -20,19 +26,22 @@ class DataChecks:
             "class_imbalance": self.check_class_imbalance(df, target_column, task_type),
             "high_correlation": self.check_high_correlation(df),
             "target_leakage": self.check_target_leakage(df, target_column),
-            "multivariate_outliers": self.check_multivariate_outliers(df),
+            "outliers": outlier_results,
             "data_types": self.check_data_types(df),
-            "issues": self._summarize_issues(df, target_column, task_type)
+            "issues": self._summarize_issues(df, target_column, task_type, outlier_results)
         }
     
     def check_missing_values(self, df: pd.DataFrame) -> Dict[str, float]:
+        """Identifies columns with null values and their percentage."""
         missing_pct = (df.isnull().sum() / len(df) * 100).to_dict()
         return {k: v for k, v in missing_pct.items() if v > 0}
     
     def check_constant_features(self, df: pd.DataFrame) -> List[str]:
+        """Detects features with zero variance (only one unique value)."""
         return [col for col in df.columns if df[col].nunique() <= 1]
     
     def check_duplicates(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """Identifies exact row duplicates in the dataset."""
         num_duplicates = int(df.duplicated().sum())
         return {
             "total_duplicates": num_duplicates,
@@ -41,11 +50,12 @@ class DataChecks:
         }
     
     def check_class_imbalance(self, df: pd.DataFrame, target_column: str, task_type: str) -> Dict[str, Any]:
+        """Checks for skewed class distributions in classification tasks."""
         if target_column not in df.columns or task_type == "regression":
             return {}
         
         value_counts = df[target_column].value_counts(normalize=True).to_dict()
-        if len(value_counts) == 0:
+        if not value_counts:
             return {}
         
         minority_pct = min(value_counts.values()) * 100
@@ -57,6 +67,7 @@ class DataChecks:
         }
     
     def check_high_correlation(self, df: pd.DataFrame, threshold: float = 0.9) -> List[tuple]:
+        """Detects multicollinearity between independent features."""
         numeric_df = df.select_dtypes(include=[np.number])
         if numeric_df.shape[1] < 2:
             return []
@@ -75,6 +86,7 @@ class DataChecks:
         return high_corr
 
     def check_target_leakage(self, df: pd.DataFrame, target_column: str) -> List[Dict[str, Any]]:
+        """Scans for features that correlate too highly with the target."""
         threshold = DiagnosticConfig.LEAKAGE_THRESHOLD
         leakage_warnings = []
         if target_column not in df.columns:
@@ -91,48 +103,46 @@ class DataChecks:
                     })
         return leakage_warnings
 
-    
+    def check_all_outliers(self, df: pd.DataFrame, target_column: str) -> Dict[str, Any]:
+        """Single pass to detect both univariate (IQR) and multivariate (Isolation Forest) outliers."""
+        numeric_df = df.select_dtypes(include=[np.number]).dropna()
+        results = {"univariate": {}, "multivariate": {"count": 0, "percentage": 0.0, "indices": []}}
+        
+        if numeric_df.empty:
+            return results
 
-    # app/debugger/data_checks.py
+        # 1. Univariate (IQR Method) - Column by column
+        for col in numeric_df.columns:
+            if col == target_column or numeric_df[col].nunique() <= 2:
+                continue
+            q1, q3 = numeric_df[col].quantile([0.25, 0.75])
+            iqr = q3 - q1
+            count = ((numeric_df[col] < (q1 - 1.5 * iqr)) | (numeric_df[col] > (q3 + 1.5 * iqr))).sum()
+            if count > 0:
+                results["univariate"][col] = int(count)
 
-def check_all_outliers(self, df: pd.DataFrame, target_column: str) -> Dict[str, Any]:
-    """Single pass to detect both univariate and multivariate outliers."""
-    numeric_df = df.select_dtypes(include=[np.number]).dropna()
-    results = {"univariate": {}, "multivariate": {}}
-    
-    if numeric_df.empty:
+        # 2. Multivariate (Isolation Forest) - Deep statistical anomalies
+        if len(numeric_df) >= 50:
+            iso = IsolationForest(contamination="auto", random_state=42)
+            preds = iso.fit_predict(numeric_df)
+            outlier_indices = numeric_df.index[preds == -1].tolist()
+            results["multivariate"] = {
+                "count": len(outlier_indices),
+                "percentage": float((len(outlier_indices) / len(numeric_df)) * 100),
+                "indices": outlier_indices[:10]
+            }
+        
         return results
 
-    # 1. Univariate (IQR Method) - Fast pass
-    for col in numeric_df.columns:
-        if col == target_column or numeric_df[col].nunique() <= 2:
-            continue
-        q1, q3 = numeric_df[col].quantile([0.25, 0.75])
-        iqr = q3 - q1
-        count = ((numeric_df[col] < (q1 - 1.5 * iqr)) | (numeric_df[col] > (q3 + 1.5 * iqr))).sum()
-        if count > 0:
-            results["univariate"][col] = int(count)
-
-    # 2. Multivariate (Isolation Forest) - Only if dataset is large enough
-    if len(numeric_df) >= 50:
-        iso = IsolationForest(contamination="auto", random_state=42)
-        preds = iso.fit_predict(numeric_df)
-        outlier_indices = numeric_df.index[preds == -1].tolist()
-        results["multivariate"] = {
-            "count": len(outlier_indices),
-            "percentage": (len(outlier_indices) / len(numeric_df)) * 100,
-            "indices": outlier_indices[:10]
-        }
-    
-    return results
-
     def check_data_types(self, df: pd.DataFrame) -> Dict[str, str]:
+        """Returns the schema mapping for all columns."""
         return df.dtypes.astype(str).to_dict()
     
-    
-    def _summarize_issues(self, df: pd.DataFrame, target_column: str, task_type: str) -> List[Dict[str, Any]]:
+    def _summarize_issues(self, df: pd.DataFrame, target_column: str, task_type: str, outlier_results: Dict) -> List[Dict[str, Any]]:
+        """Translates raw check results into a structured list of actionable issues."""
         issues = []
         
+        # 1. Missing Values
         for col, pct in self.check_missing_values(df).items():
             severity = "high" if pct > 50 else "medium" if pct > 20 else "low"
             issues.append({
@@ -142,6 +152,7 @@ def check_all_outliers(self, df: pd.DataFrame, target_column: str) -> Dict[str, 
                 "description": f"{pct:.1f}% missing values"
             })
         
+        # 2. Constant Features
         for col in self.check_constant_features(df):
             issues.append({
                 "type": "constant_feature",
@@ -150,8 +161,9 @@ def check_all_outliers(self, df: pd.DataFrame, target_column: str) -> Dict[str, 
                 "description": "Feature has only one unique value"
             })
         
+        # 3. Duplicate Rows
         dup_info = self.check_duplicates(df)
-        if dup_info and dup_info.get("has_duplicates"):
+        if dup_info.get("has_duplicates"):
             issues.append({
                 "type": "duplicate_rows",
                 "column": "dataset_wide",
@@ -159,6 +171,7 @@ def check_all_outliers(self, df: pd.DataFrame, target_column: str) -> Dict[str, 
                 "description": f"{dup_info['total_duplicates']} duplicate rows ({dup_info['duplicate_percentage']:.1f}%)"
             })
         
+        # 4. Class Imbalance
         imbalance = self.check_class_imbalance(df, target_column, task_type)
         if imbalance and imbalance.get("is_imbalanced"):
             issues.append({
@@ -168,6 +181,7 @@ def check_all_outliers(self, df: pd.DataFrame, target_column: str) -> Dict[str, 
                 "description": f"Minority class: {imbalance['minority_class_percentage']:.1f}%"
             })
         
+        # 5. High Correlation
         for col1, col2, corr in self.check_high_correlation(df):
             issues.append({
                 "type": "high_correlation",
@@ -176,6 +190,7 @@ def check_all_outliers(self, df: pd.DataFrame, target_column: str) -> Dict[str, 
                 "description": f"Correlation: {corr:.3f}"
             })
 
+        # 6. Target Leakage
         for leak in self.check_target_leakage(df, target_column):
             issues.append({
                 "type": "target_leakage",
@@ -184,17 +199,19 @@ def check_all_outliers(self, df: pd.DataFrame, target_column: str) -> Dict[str, 
                 "description": f"Suspected leakage: correlation with target is {leak['correlation']:.3f}"
             })
 
-        multi_outliers = self.check_multivariate_outliers(df)
-        if multi_outliers and multi_outliers.get("has_outliers"):
-            severity = "high" if multi_outliers["percentage"] > 5 else "medium"
+        # 7. Multivariate Outliers
+        multi = outlier_results["multivariate"]
+        if multi["count"] > 0:
+            severity = "high" if multi["percentage"] > 5 else "medium"
             issues.append({
                 "type": "multivariate_outliers",
                 "column": "dataset_wide",
                 "severity": severity,
-                "description": f"Detected {multi_outliers['count']} multivariate outliers ({multi_outliers['percentage']:.1f}%)"
+                "description": f"Detected {multi['count']} multivariate outliers ({multi['percentage']:.1f}%)"
             })
         
-        for col, count in self.check_outliers(df, target_column).items():
+        # 8. Univariate Outliers
+        for col, count in outlier_results["univariate"].items():
             pct = (count / len(df)) * 100
             severity = "high" if pct > 10 else "medium" if pct > 5 else "low"
             issues.append({

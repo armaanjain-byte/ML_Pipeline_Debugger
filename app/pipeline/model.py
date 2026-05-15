@@ -110,25 +110,25 @@ class Model:
         }
     # app/pipeline/model.py
 
-def feature_importance(self) -> Dict[str, float]:
-    """Dynamically extracts feature importance using pipeline-generated names."""
-    if self.pipeline is None:
-        return {}
-
-    # 1. Get the fitted preprocessor and estimator
-    preprocessor = self.pipeline.named_steps['preprocessor']
-    estimator = self.pipeline.named_steps['estimator']
+def feature_importance(self, feature_names: List[str]) -> Dict[str, float]:
+        """Extracts feature importance with correct mapping for encoded features."""
+        if self.pipeline is None:
+            return {}
     
-    # 2. Extract the actual feature names after transformation
-    # This handles the expansion caused by OneHotEncoding
-    try:
-        feature_names = preprocessor.get_feature_names_out()
-    except Exception:
-        # Fallback if names can't be retrieved
-        return {"error": "Could not extract feature names from preprocessor"}
-
-    importance = estimator.feature_importances_
-    
-    # 3. Zip and sort
-    feat_imp = dict(zip(feature_names, importance))
-    return dict(sorted(feat_imp.items(), key=lambda item: item[1], reverse=True))
+        try:
+            # 1. Get the trained estimator
+            estimator = self.pipeline.named_steps['estimator']
+            importances = estimator.feature_importances_
+            
+            # 2. Get the transformed feature names from the preprocessor
+            preprocessor = self.pipeline.named_steps['preprocessor']
+            # This correctly handles the expansion from OneHotEncoder
+            transformed_names = preprocessor.get_feature_names_out()
+            
+            # 3. Map and sort
+            feat_imp = dict(zip(transformed_names, importances))
+            return dict(sorted(feat_imp.items(), key=lambda item: item[1], reverse=True))
+            
+        except Exception as e:
+            logger.warning(f"Could not compute feature importance: {str(e)}")
+            return {}
