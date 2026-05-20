@@ -132,3 +132,5 @@ def feature_importance(self, feature_names: List[str]) -> Dict[str, float]:
         except Exception as e:
             logger.warning(f"Could not compute feature importance: {str(e)}")
             return {}
+
+Model.random_state = 42

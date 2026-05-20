@@ -74,3 +74,5 @@ class PipelineConfig:
 
 # Default singleton instance
 DEFAULT_CONFIG = PipelineConfig()
+
+DiagnosticConfig = DataCheckConfig
