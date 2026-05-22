@@ -21,6 +21,7 @@ from sklearn.metrics import (
     precision_score,
     r2_score,
     recall_score,
+    roc_auc_score,
 )
 from sklearn.model_selection import cross_val_score
 from sklearn.pipeline import Pipeline
@@ -57,7 +58,22 @@ class Model:
             Pipeline
         ] = None
 
-        self.model = None
+        if self.task_type == "classification":
+            self.model = RandomForestClassifier(
+                n_estimators=100,
+                random_state=self.RANDOM_STATE,
+                n_jobs=-1,
+            )
+
+        elif self.task_type == "regression":
+            self.model = RandomForestRegressor(
+            n_estimators=100,
+            random_state=self.RANDOM_STATE,
+            n_jobs=-1,
+        )
+
+        else:
+            self.model = None
 
         self.feature_names_in_: List[
             str
@@ -216,9 +232,10 @@ class Model:
         )
 
     def evaluate(
-        self,
-        y_test: pd.Series,
-        y_pred: np.ndarray,
+    self,
+    y_test: pd.Series,
+    y_pred: np.ndarray,
+    y_pred_proba=None,
     ) -> Dict[str, float]:
         """
         Stable metric evaluation.
@@ -231,6 +248,7 @@ class Model:
             return self._evaluate_classification(
                 y_test,
                 y_pred,
+                y_pred_proba,
             )
 
         return self._evaluate_regression(
@@ -311,6 +329,7 @@ class Model:
 
     def feature_importance(
         self,
+        feature_names,
     ) -> Dict[str, float]:
         """
         Stable feature-importance extraction.
@@ -336,30 +355,17 @@ class Model:
             if importances is None:
                 return {}
 
-            transformed_names = (
-                self.transformed_feature_names_
+            transformed_names = list(
+            feature_names
             )
 
-            if not transformed_names:
-                transformed_names = (
-                    self._extract_transformed_feature_names()
-                )
-
             if (
-                len(transformed_names)
-                != len(importances)
+                    len(transformed_names)
+                    != len(importances)
             ):
-
-                logger.warning(
-                    "Feature importance length mismatch detected."
-                )
-
-                transformed_names = [
-                    f"feature_{index}"
-                    for index in range(
-                        len(importances)
-                    )
-                ]
+                raise ValueError(
+                "Feature names length does not match importance values."
+            )
 
             normalized_importances = (
                 self._normalize_importances(
@@ -395,7 +401,8 @@ class Model:
                 "Could not compute feature importance: %s",
                 str(error),
             )
-
+            if isinstance(error, ValueError):
+                raise
             return {}
 
     # ==========================================================
@@ -551,47 +558,81 @@ class Model:
     # ==========================================================
 
     def _evaluate_classification(
-        self,
-        y_test,
-        y_pred,
-    ) -> Dict[str, float]:
+    self,
+    y_test,
+    y_pred,
+    y_pred_proba=None,
+) -> Dict[str, float]:
 
-        return {
-            "accuracy":
-                float(
-                    accuracy_score(
-                        y_test,
-                        y_pred,
+            metrics = {
+                "accuracy":
+            float(
+                accuracy_score(
+                    y_test,
+                    y_pred,
+                )
+            ),
+
+        "precision":
+            float(
+                precision_score(
+                    y_test,
+                    y_pred,
+                    average="weighted",
+                    zero_division=0,
+                )
+            ),
+
+        "recall":
+            float(
+                recall_score(
+                    y_test,
+                    y_pred,
+                    average="weighted",
+                    zero_division=0,
+                )
+            ),
+
+        "f1":
+            float(
+                f1_score(
+                    y_test,
+                    y_pred,
+                    average="weighted",
+                    zero_division=0,
+                )
+            ),
+
+        "roc_auc": 0.0,
+    }
+
+            
+
+            if y_pred_proba is not None:
+
+                try:
+
+                    if len(y_pred_proba.shape) > 1:
+                        positive_scores = (
+                    y_pred_proba[:, 1]
                     )
-                ),
-            "precision":
-                float(
-                    precision_score(
-                        y_test,
-                        y_pred,
-                        average="weighted",
-                        zero_division=0,
+
+                    else:
+                        positive_scores = (
+                        y_pred_proba
                     )
-                ),
-            "recall":
-                float(
-                    recall_score(
+
+                    metrics["roc_auc"] = float(
+                        roc_auc_score(
                         y_test,
-                        y_pred,
-                        average="weighted",
-                        zero_division=0,
+                        positive_scores,
                     )
-                ),
-            "f1":
-                float(
-                    f1_score(
-                        y_test,
-                        y_pred,
-                        average="weighted",
-                        zero_division=0,
                     )
-                ),
-        }
+
+                except Exception:
+                    metrics["roc_auc"] = 0.0
+
+            return metrics
 
     def _evaluate_regression(
         self,
@@ -1018,11 +1059,15 @@ class ModelTrainer(Model):
         return {
             "model": self,
             "metrics": {
+                "train": metrics,
                 "holdout": metrics,
+                "cv": {},
             },
             "feature_importance": (
-                self.feature_importance()
-                or {}
+                self.model.feature_importance(
+                list(X_train.columns)
+                )
+            or {}
             ),
-            "observability_flags": {},
+            "observability_flags": [],
         }

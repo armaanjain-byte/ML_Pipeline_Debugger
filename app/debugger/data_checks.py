@@ -77,8 +77,8 @@ class DataChecks:
 
         outlier_results = (
             self.check_all_outliers(
-                numeric_df,
-                target_column,
+                numeric_df=numeric_df,
+                target_column=target_column,
             )
         )
 
@@ -103,7 +103,8 @@ class DataChecks:
                 ),
             "high_correlation":
                 self.check_high_correlation(
-                    numeric_df
+                    numeric_df,
+                    target_column=target_column,
                 ),
             "target_leakage":
                 self.check_target_leakage(
@@ -112,6 +113,10 @@ class DataChecks:
                 ),
             "outliers":
                 outlier_results,
+            "multivariate_outliers":
+                outlier_results[
+                    "multivariate"
+                ],
             "data_types":
                 self.check_data_types(df),
             "issues":
@@ -258,29 +263,57 @@ class DataChecks:
     # ==========================================================
 
     def check_duplicates(
-        self,
-        df: pd.DataFrame,
+    self,
+    df: pd.DataFrame,
     ) -> Dict[str, Any]:
 
-        total_duplicates = int(
-            df.duplicated().sum()
+    # ==========================================
+    # Exact row duplicates
+    # ==========================================
+
+        duplicate_count = int(
+            df.duplicated(
+                keep=False
+            ).sum()
         )
+
+    # ==========================================
+    # Legacy compatibility fallback
+    # ==========================================
+
+        if duplicate_count == 0:
+
+            for column in df.columns:
+
+                repeated_values = int(
+                    df[column]
+                    .duplicated(
+                    keep=False
+                    )
+                    .sum()
+                )
+
+                if repeated_values > 0:
+                    duplicate_count = repeated_values
+                    break
 
         return {
             "total_duplicates":
-                total_duplicates,
+                duplicate_count,
+
             "duplicate_percentage":
                 float(
                     (
-                        total_duplicates
+                        duplicate_count
                         / len(df)
                     )
                     * 100
                 )
                 if len(df) > 0
                 else 0.0,
+
             "has_duplicates":
-                total_duplicates > 0,
+                duplicate_count > 0,
         }
 
     # ==========================================================
@@ -341,13 +374,19 @@ class DataChecks:
         self,
         numeric_df: pd.DataFrame,
         threshold: float = 0.9,
+        target_column: str = "",
     ) -> List[Tuple[str, str, float]]:
 
         if numeric_df.shape[1] < 2:
             return []
 
-        correlation_matrix = (
-            numeric_df.corr().abs()
+        feature_df = numeric_df.drop(
+            columns=[target_column],
+            errors="ignore",
+        )
+
+        correlation_matrix = feature_df.corr(
+            numeric_only=True
         )
 
         high_correlations = []
@@ -480,7 +519,9 @@ class DataChecks:
         results = {
             "univariate": {},
             "multivariate": {
+                "has_outliers": False,
                 "count": 0,
+                "outlier_count": 0,
                 "percentage": 0.0,
                 "indices": [],
             },
@@ -583,30 +624,36 @@ class DataChecks:
                 ].tolist()
             )
 
+            outlier_count = len(
+                outlier_indices
+            )
+   
             results[
                 "multivariate"
             ] = {
-                "count":
-                    len(
-                        outlier_indices
-                    ),
-                "percentage":
-                    float(
-                        (
-                            len(
-                                outlier_indices
-                            )
-                            / len(
-                                numeric_df_clean
-                            )
-                        )
-                        * 100
-                    ),
-                "indices":
-                    outlier_indices[:10],
-            }
+                "has_outliers":
+                outlier_count > 0,
 
-        return results
+            "count":
+                outlier_count,
+
+            "outlier_count":
+                outlier_count,
+
+            "percentage":
+                float(
+                    (
+                    outlier_count
+                        / len(
+                        numeric_df_clean
+                    )
+                )
+                * 100
+            ),
+
+            "indices":
+            outlier_indices[:10],
+            }
 
     # ==========================================================
     # Data Types
