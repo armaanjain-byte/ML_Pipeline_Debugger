@@ -234,15 +234,15 @@
         }
     ],
     "telemetry": {
-        "data_loading_seconds": 0.3669312000274658,
-        "split_seconds": 0.016667842864990234,
-        "integrity_checks_seconds": 0.04066920280456543,
-        "diagnostics_seconds": 0.3550102710723877,
-        "recommendations_seconds": 3.886222839355469e-05,
-        "training_seconds": 3.268676996231079,
-        "evaluation_seconds": 12.255427360534668,
-        "importance_seconds": 0.12808465957641602,
-        "total_pipeline_seconds": 16.431873083114624
+        "data_loading_seconds": 0.39993929862976074,
+        "split_seconds": 0.021556615829467773,
+        "integrity_checks_seconds": 0.043708086013793945,
+        "diagnostics_seconds": 0.3904287815093994,
+        "recommendations_seconds": 5.135749101638794,
+        "training_seconds": 2.6822493076324463,
+        "evaluation_seconds": 11.330888748168945,
+        "importance_seconds": 0.15272116661071777,
+        "total_pipeline_seconds": 20.15784764289856
     },
     "issues": [
         {
@@ -303,66 +303,21 @@
     },
     "recommendations": [
         {
-            "title": "High Cardinality",
-            "severity": "high",
-            "description": "Categorical feature with excessive cardinality (5634 unique values).",
-            "rationale": "Data quality anomaly detected requiring engineering investigation.",
-            "impact": "Improves overall model stability.",
-            "actions": [
-                "Conduct a manual review of this feature."
-            ],
+            "type": "high_cardinality",
+            "severity": "critical",
+            "title": "High-Cardinality Feature: customerID",
             "column": "customerID",
-            "issue_type": "high_cardinality"
-        },
-        {
-            "title": "Reduce Multicollinearity (High VIF)",
-            "severity": "high",
-            "description": "Multicollinearity detected via Variance Inflation Factor (VIF: 9.7).",
-            "rationale": "High Variance Inflation Factor (VIF) destabilizes the model, inflates variance, and makes interpretability impossible.",
-            "impact": "Stabilizes coefficients and feature importance attributions.",
+            "description": "Feature \"customerID\" has 5634 unique values (100.0% of dataset size)",
+            "statistical_evidence": "\n                        Cardinality: 5634 unique values\n                        Cardinality Ratio: 100.0% of dataset size\n                        Categories with single target value: 5634 (100.0%)\n                        Information gain: 0.8347 bits\n                    ",
+            "impact": "\n                        - Tree-based models: Creates separate leaf per category, memorizing rather than learning\n                        - One-hot encoding: Generates {nunique} binary features, exploding feature space\n                        - Sparsity: Most encoded features appear in <1% of samples, creating noise\n                        - Generalization: Model fails on unseen category values in production\n                    ",
+            "rationale": "\n                        High cardinality features violate the assumption that feature values capture generalizable patterns.\n                        With 5634 categories, tree ensembles build separate paths for each, which is memorization not learning.\n                        In production, any new customer ID or category value will be treated as missing/unknown.\n                        Despite 5634 values, information gain is low (0.835), indicating sparse signal.\n                    ",
             "actions": [
-                "Drop the feature with the higher VIF score.",
-                "Use PCA to compress the correlated feature space."
-            ],
-            "column": "TotalCharges",
-            "issue_type": "multicollinearity"
-        },
-        {
-            "title": "Reduce Multicollinearity (High VIF)",
-            "severity": "high",
-            "description": "Multicollinearity detected via Variance Inflation Factor (VIF: 5.9).",
-            "rationale": "High Variance Inflation Factor (VIF) destabilizes the model, inflates variance, and makes interpretability impossible.",
-            "impact": "Stabilizes coefficients and feature importance attributions.",
-            "actions": [
-                "Drop the feature with the higher VIF score.",
-                "Use PCA to compress the correlated feature space."
-            ],
-            "column": "tenure",
-            "issue_type": "multicollinearity"
-        },
-        {
-            "title": "Multivariate Outliers",
-            "severity": "medium",
-            "description": "Detected 100 deep multivariate anomalies (1.8%).",
-            "rationale": "Data quality anomaly detected requiring engineering investigation.",
-            "impact": "Improves overall model stability.",
-            "actions": [
-                "Conduct a manual review of this feature."
-            ],
-            "column": "dataset_wide",
-            "issue_type": "multivariate_outliers"
-        },
-        {
-            "title": "Missing Values",
-            "severity": "low",
-            "description": "0.1% missing values detected.",
-            "rationale": "Data quality anomaly detected requiring engineering investigation.",
-            "impact": "Improves overall model stability.",
-            "actions": [
-                "Conduct a manual review of this feature."
-            ],
-            "column": "TotalCharges",
-            "issue_type": "missing_values"
+                "OPTION 1 - Drop: If {nunique} >> dataset size, feature is likely an identifier (customer_id, transaction_id). Remove entirely.",
+                "OPTION 2 - Aggregation: Create derived features from customerID (e.g., frequency encoding, target encoding, hashing into 75 buckets)",
+                "OPTION 3 - Target Encoding: Map categories to mean target value. Use cross-validation to avoid leakage.",
+                "OPTION 4 - Domain Engineering: Consult domain experts; may encode business logic (e.g., \"VIP\", \"risky\", \"frequent\").",
+                "RECOMMENDED: Drop if cardinality_pct > 50%. Otherwise, use target encoding with proper CV fold isolation."
+            ]
         }
     ],
     "critical_issues": 0,

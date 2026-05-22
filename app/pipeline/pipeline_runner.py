@@ -33,7 +33,6 @@ class PipelineRunner:
         self.loader = DataLoader(file_path)
         self.model = Model(task_type=self.task_type, dev_mode=self.dev_mode)
         self.checker = DataChecks()
-        self.recommender = RecommendationEngine()
         self.telemetry = {}
 
         logger.info(f"PipelineRunner initialized: task_type={task_type}, target={target_column}")
@@ -115,7 +114,13 @@ class PipelineRunner:
 
             # 5. RECOMMENDATIONS
             t0 = time.time()
-            recommendations = self.recommender.generate(checks_output)
+            recommender = RecommendationEngine(
+                df=train_df,
+                target=self.target_column,
+                task=self.task_type
+            )
+
+            recommendations = recommender.generate(checks_output)
             self.telemetry['recommendations_seconds'] = time.time() - t0
 
             # 6. MODEL TRAINING
