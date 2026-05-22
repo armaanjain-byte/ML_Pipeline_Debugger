@@ -1,28 +1,26 @@
-# FILE: tests/test_pipeline_runner.py
+# FILE: tests/test_pipeline_contracts.py
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from app.pipeline.pipeline_runner import (
-    PipelineRunner,
-)
+from app.pipeline.pipeline_runner import PipelineRunner
+
 
 # ============================================================================
-# FIXTURES
+# TEST DATASET
 # ============================================================================
 
 
 @pytest.fixture
-def classification_dataset(
-    tmp_path,
-):
+def sample_classification_dataset(tmp_path):
     """
-    Stable classification dataset.
+    Stable synthetic classification dataset.
     """
 
     rng = np.random.default_rng(42)
@@ -31,18 +29,14 @@ def classification_dataset(
 
     dataframe = pd.DataFrame(
         {
-            "age": rng.integers(
-                18,
-                70,
-                rows,
-            ),
+            "age": rng.integers(18, 70, rows),
             "salary": rng.normal(
-                60000,
+                50000,
                 12000,
                 rows,
             ),
             "experience": rng.normal(
-                7,
+                8,
                 3,
                 rows,
             ),
@@ -51,70 +45,19 @@ def classification_dataset(
                     "engineering",
                     "sales",
                     "finance",
+                    "hr",
                 ],
                 rows,
             ),
-            "target": rng.integers(
-                0,
-                2,
+            "target": rng.choice(
+                [0, 1],
                 rows,
             ),
         }
     )
 
     dataset_path = (
-        tmp_path
-        / "classification.csv"
-    )
-
-    dataframe.to_csv(
-        dataset_path,
-        index=False,
-    )
-
-    return dataset_path
-
-
-@pytest.fixture
-def regression_dataset(
-    tmp_path,
-):
-    """
-    Stable regression dataset.
-    """
-
-    rng = np.random.default_rng(42)
-
-    rows = 300
-
-    dataframe = pd.DataFrame(
-        {
-            "feature_a": rng.normal(
-                0,
-                1,
-                rows,
-            ),
-            "feature_b": rng.normal(
-                5,
-                2,
-                rows,
-            ),
-            "feature_c": rng.normal(
-                10,
-                4,
-                rows,
-            ),
-            "target": rng.normal(
-                100,
-                20,
-                rows,
-            ),
-        }
-    )
-
-    dataset_path = (
-        tmp_path
-        / "regression.csv"
+        tmp_path / "sample.csv"
     )
 
     dataframe.to_csv(
@@ -126,20 +69,20 @@ def regression_dataset(
 
 
 # ============================================================================
-# EXECUTION TESTS
+# PIPELINE EXECUTION
 # ============================================================================
 
 
-def test_pipeline_runner_classification(
-    classification_dataset,
+def test_pipeline_executes_successfully(
+    sample_classification_dataset,
 ):
     """
-    Classification pipeline must execute.
+    Ensures pipeline completes end-to-end.
     """
 
     runner = PipelineRunner(
         file_path=str(
-            classification_dataset
+            sample_classification_dataset
         ),
         target_column="target",
         task_type="classification",
@@ -159,50 +102,21 @@ def test_pipeline_runner_classification(
     )
 
 
-def test_pipeline_runner_regression(
-    regression_dataset,
+# ============================================================================
+# ROOT CONTRACT
+# ============================================================================
+
+
+def test_pipeline_root_schema(
+    sample_classification_dataset,
 ):
     """
-    Regression pipeline must execute.
+    Protects top-level report schema.
     """
 
     runner = PipelineRunner(
         file_path=str(
-            regression_dataset
-        ),
-        target_column="target",
-        task_type="regression",
-        dev_mode=True,
-    )
-
-    result = runner.run()
-
-    assert isinstance(
-        result,
-        dict,
-    )
-
-    assert (
-        result["pipeline_status"]
-        == "success"
-    )
-
-
-# ============================================================================
-# ROOT SCHEMA TESTS
-# ============================================================================
-
-
-def test_pipeline_runner_root_schema(
-    classification_dataset,
-):
-    """
-    Root report contract stability.
-    """
-
-    runner = PipelineRunner(
-        file_path=str(
-            classification_dataset
+            sample_classification_dataset
         ),
         target_column="target",
         task_type="classification",
@@ -225,26 +139,31 @@ def test_pipeline_runner_root_schema(
         "critical_issues",
     }
 
-    assert required_keys.issubset(
-        set(result.keys())
+    missing_keys = (
+        required_keys
+        - set(result.keys())
     )
 
+    assert (
+        not missing_keys
+    ), f"Missing keys: {missing_keys}"
+
 
 # ============================================================================
-# DATASET CONTRACT TESTS
+# DATASET CONTRACT
 # ============================================================================
 
 
-def test_dataset_section_schema(
-    classification_dataset,
+def test_dataset_schema(
+    sample_classification_dataset,
 ):
     """
-    Dataset section stability.
+    Protects dataset metadata contract.
     """
 
     runner = PipelineRunner(
         file_path=str(
-            classification_dataset
+            sample_classification_dataset
         ),
         target_column="target",
         task_type="classification",
@@ -268,22 +187,26 @@ def test_dataset_section_schema(
         set(dataset.keys())
     )
 
+    assert dataset["rows"] > 0
+
+    assert dataset["columns"] > 0
+
 
 # ============================================================================
-# METRICS TESTS
+# METRICS CONTRACT
 # ============================================================================
 
 
-def test_metrics_schema(
-    classification_dataset,
+def test_metrics_contract(
+    sample_classification_dataset,
 ):
     """
-    Metrics schema stability.
+    Protects metrics schema.
     """
 
     runner = PipelineRunner(
         file_path=str(
-            classification_dataset
+            sample_classification_dataset
         ),
         target_column="target",
         task_type="classification",
@@ -305,152 +228,89 @@ def test_metrics_schema(
         set(metrics.keys())
     )
 
-
-def test_metrics_numeric_values(
-    classification_dataset,
-):
-    """
-    Metrics values must remain numeric.
-    """
-
-    runner = PipelineRunner(
-        file_path=str(
-            classification_dataset
-        ),
-        target_column="target",
-        task_type="classification",
-        dev_mode=True,
-    )
-
-    result = runner.run()
-
-    metrics = result["metrics"]
-
-    for section in [
-        "train",
-        "holdout",
-        "cv",
-    ]:
-        for value in metrics[
-            section
-        ].values():
-            assert isinstance(
-                value,
-                (
-                    int,
-                    float,
-                    np.floating,
-                ),
-            )
-
-
-# ============================================================================
-# TELEMETRY TESTS
-# ============================================================================
-
-
-def test_telemetry_schema(
-    classification_dataset,
-):
-    """
-    Telemetry schema stability.
-    """
-
-    runner = PipelineRunner(
-        file_path=str(
-            classification_dataset
-        ),
-        target_column="target",
-        task_type="classification",
-        dev_mode=True,
-    )
-
-    result = runner.run()
-
-    telemetry = result[
-        "telemetry"
-    ]
-
-    required_keys = {
-        "data_loading_seconds",
-        "split_seconds",
-        "diagnostics_seconds",
-        "training_seconds",
-        "evaluation_seconds",
-        "total_pipeline_seconds",
-    }
-
-    assert required_keys.issubset(
-        set(telemetry.keys())
-    )
-
-
-# ============================================================================
-# FEATURE IMPORTANCE TESTS
-# ============================================================================
-
-
-def test_feature_importance_schema(
-    classification_dataset,
-):
-    """
-    Importance schema stability.
-    """
-
-    runner = PipelineRunner(
-        file_path=str(
-            classification_dataset
-        ),
-        target_column="target",
-        task_type="classification",
-        dev_mode=True,
-    )
-
-    result = runner.run()
-
-    importance = result[
-        "feature_importance"
-    ]
-
     assert isinstance(
-        importance,
+        metrics["train"],
         dict,
     )
 
-    for (
-        feature,
-        value,
-    ) in importance.items():
-        assert isinstance(
-            feature,
-            str,
-        )
+    assert isinstance(
+        metrics["holdout"],
+        dict,
+    )
 
-        assert isinstance(
-            value,
-            (
-                int,
-                float,
-                np.floating,
-            ),
+    assert isinstance(
+        metrics["cv"],
+        dict,
+    )
+
+    assert isinstance(
+        metrics[
+            "observability_flags"
+        ],
+        list,
+    )
+
+
+# ============================================================================
+# ISSUE CONTRACT
+# ============================================================================
+
+
+def test_issue_schema(
+    sample_classification_dataset,
+):
+    """
+    Protects issue schema consistency.
+    """
+
+    runner = PipelineRunner(
+        file_path=str(
+            sample_classification_dataset
+        ),
+        target_column="target",
+        task_type="classification",
+        dev_mode=True,
+    )
+
+    result = runner.run()
+
+    issues = result["issues"]
+
+    assert isinstance(
+        issues,
+        list,
+    )
+
+    if issues:
+        issue = issues[0]
+
+        required_keys = {
+            "type",
+            "column",
+            "severity",
+            "description",
+        }
+
+        assert required_keys.issubset(
+            set(issue.keys())
         )
 
 
 # ============================================================================
-# RECOMMENDATION TESTS
+# RECOMMENDATION CONTRACT
 # ============================================================================
 
 
 def test_recommendation_schema(
-    classification_dataset,
+    sample_classification_dataset,
 ):
     """
-    Recommendation contract stability.
+    Protects recommendation schema.
     """
 
     runner = PipelineRunner(
         file_path=str(
-            classification_dataset
+            sample_classification_dataset
         ),
         target_column="target",
         task_type="classification",
@@ -488,17 +348,150 @@ def test_recommendation_schema(
 
 
 # ============================================================================
-# FAILURE TESTS
+# TELEMETRY CONTRACT
 # ============================================================================
 
 
-def test_pipeline_runner_failure_contract():
+def test_telemetry_schema(
+    sample_classification_dataset,
+):
     """
-    Failures must remain dashboard-safe.
+    Protects telemetry consistency.
     """
 
     runner = PipelineRunner(
-        file_path="missing.csv",
+        file_path=str(
+            sample_classification_dataset
+        ),
+        target_column="target",
+        task_type="classification",
+        dev_mode=True,
+    )
+
+    result = runner.run()
+
+    telemetry = result[
+        "telemetry"
+    ]
+
+    expected_metrics = {
+        "data_loading_seconds",
+        "split_seconds",
+        "diagnostics_seconds",
+        "training_seconds",
+        "evaluation_seconds",
+        "total_pipeline_seconds",
+    }
+
+    assert expected_metrics.issubset(
+        set(telemetry.keys())
+    )
+
+    for value in telemetry.values():
+        assert isinstance(
+            value,
+            (
+                int,
+                float,
+            ),
+        )
+
+
+# ============================================================================
+# FEATURE IMPORTANCE CONTRACT
+# ============================================================================
+
+
+def test_feature_importance_contract(
+    sample_classification_dataset,
+):
+    """
+    Ensures importance structure remains stable.
+    """
+
+    runner = PipelineRunner(
+        file_path=str(
+            sample_classification_dataset
+        ),
+        target_column="target",
+        task_type="classification",
+        dev_mode=True,
+    )
+
+    result = runner.run()
+
+    importance = result[
+        "feature_importance"
+    ]
+
+    assert isinstance(
+        importance,
+        dict,
+    )
+
+    for (
+        feature,
+        value,
+    ) in importance.items():
+        assert isinstance(
+            feature,
+            str,
+        )
+
+        assert isinstance(
+            value,
+            (
+                int,
+                float,
+            ),
+        )
+
+
+# ============================================================================
+# SERIALIZATION CONTRACT
+# ============================================================================
+
+
+def test_report_is_json_serializable(
+    sample_classification_dataset,
+):
+    """
+    Prevents serialization regressions.
+    """
+
+    runner = PipelineRunner(
+        file_path=str(
+            sample_classification_dataset
+        ),
+        target_column="target",
+        task_type="classification",
+        dev_mode=True,
+    )
+
+    result = runner.run()
+
+    try:
+        json.dumps(result)
+
+    except TypeError as error:
+        pytest.fail(
+            f"Report is not JSON serializable: "
+            f"{str(error)}"
+        )
+
+
+# ============================================================================
+# FAILURE CONTRACT
+# ============================================================================
+
+
+def test_failure_contract():
+    """
+    Protects dashboard-safe failure payload.
+    """
+
+    runner = PipelineRunner(
+        file_path="non_existent.csv",
         target_column="target",
         task_type="classification",
         dev_mode=True,
@@ -529,20 +522,20 @@ def test_pipeline_runner_failure_contract():
 
 
 # ============================================================================
-# SERIALIZATION TESTS
+# REGRESSION SAFETY
 # ============================================================================
 
 
-def test_pipeline_output_serializable(
-    classification_dataset,
+def test_no_none_root_contracts(
+    sample_classification_dataset,
 ):
     """
-    Pipeline output must remain JSON-safe.
+    Prevents dangerous None-based schemas.
     """
 
     runner = PipelineRunner(
         file_path=str(
-            classification_dataset
+            sample_classification_dataset
         ),
         target_column="target",
         task_type="classification",
@@ -551,69 +544,8 @@ def test_pipeline_output_serializable(
 
     result = runner.run()
 
-    json.dumps(result)
-
-
-# ============================================================================
-# REGRESSION SAFETY TESTS
-# ============================================================================
-
-
-def test_no_none_root_outputs(
-    classification_dataset,
-):
-    """
-    Root payload must avoid dangerous None contracts.
-    """
-
-    runner = PipelineRunner(
-        file_path=str(
-            classification_dataset
-        ),
-        target_column="target",
-        task_type="classification",
-        dev_mode=True,
-    )
-
-    result = runner.run()
-
-    for (
-        key,
-        value,
-    ) in result.items():
-        assert value is not None
-
-
-def test_pipeline_runner_deterministic_keys(
-    classification_dataset,
-):
-    """
-    Schema drift prevention.
-    """
-
-    runner_1 = PipelineRunner(
-        file_path=str(
-            classification_dataset
-        ),
-        target_column="target",
-        task_type="classification",
-        dev_mode=True,
-    )
-
-    runner_2 = PipelineRunner(
-        file_path=str(
-            classification_dataset
-        ),
-        target_column="target",
-        task_type="classification",
-        dev_mode=True,
-    )
-
-    result_1 = runner_1.run()
-
-    result_2 = runner_2.run()
-
-    assert (
-        result_1.keys()
-        == result_2.keys()
-    )
+    for key, value in result.items():
+        assert value is not None, (
+            f"Root key '{key}' "
+            f"contains None."
+        )

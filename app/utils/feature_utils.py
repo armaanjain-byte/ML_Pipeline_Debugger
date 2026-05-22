@@ -1,187 +1,626 @@
-"""
-Feature utilities for deep diagnostic analysis.
-Computes VIF, PSI (Feature Drift), Informative Missingness, Volatility, and Overlap Hashing.
-"""
+# FILE: app/utils/feature_utils.py
 
-import re
-from typing import Dict, List, Tuple, Any
-import pandas as pd
-import numpy as np
+from __future__ import annotations
+
 import logging
-from scipy.stats import pointbiserialr
+from typing import Any, Dict, List, Tuple
+
+import numpy as np
+import pandas as pd
+from scipy.stats import entropy
+from statsmodels.stats.outliers_influence import (variance_inflation_factor)
 
 logger = logging.getLogger(__name__)
 
+# ============================================================================
+# CONSTANTS
+# ============================================================================
+
+EPSILON = 1e-8
+
+DEFAULT_PSI_BINS = 10
+
+MAX_VIF_FEATURES = 100
+
+MAX_CATEGORY_UNIQUES = 50
+
+# ============================================================================
+# ADVANCED DIAGNOSTICS
+# ============================================================================
+
+
 class AdvancedDiagnostics:
-    """Deep statistical diagnostics for ML reliability."""
-    
+    """
+    Stable statistical diagnostics engine.
+
+    Responsibilities:
+    - PSI drift analysis
+    - train/test overlap detection
+    - variance stability analysis
+    - multicollinearity analysis
+    - informative missingness detection
+
+    IMPORTANT:
+    Preserves analytical semantics while stabilizing:
+    - numerical robustness
+    - dtype handling
+    - NaN propagation
+    - divide-by-zero behavior
+    - singular matrix failures
+    """
+
+    # ==========================================================
+    # PSI ANALYSIS
+    # ==========================================================
+
     @staticmethod
-    def compute_vif(df: pd.DataFrame) -> Dict[str, float]:
+    def compute_psi(
+        expected: pd.Series,
+        actual: pd.Series,
+        bins: int = DEFAULT_PSI_BINS,
+    ) -> float:
         """
-        Computes Variance Inflation Factor (VIF) using the pseudo-inverse correlation matrix.
+        Numerically stable PSI computation.
         """
-        numeric_df = df.select_dtypes(include=[np.number])
-        numeric_df = numeric_df.replace([np.inf, -np.inf], np.nan).dropna()
-        
-        variances = numeric_df.var()
-        numeric_df = numeric_df.loc[:, variances > 1e-5]
-        
-        if numeric_df.shape[1] < 2:
-            return {}
-            
+
         try:
-            corr = numeric_df.corr().values
-            inv_corr = np.linalg.pinv(corr)
-            vif_values = np.diag(inv_corr)
-            
-            vif_dict = {col: float(val) for col, val in zip(numeric_df.columns, vif_values)}
-            return dict(sorted(vif_dict.items(), key=lambda x: x[1], reverse=True))
-        except Exception as e:
-            logger.warning(f"VIF computation gracefully aborted: {str(e)}")
-            return {}
+            expected = pd.to_numeric(
+                expected,
+                errors="coerce",
+            ).dropna()
+
+            actual = pd.to_numeric(
+                actual,
+                errors="coerce",
+            ).dropna()
+
+            if (
+                len(expected) == 0
+                or len(actual) == 0
+            ):
+                return 0.0
+
+            breakpoints = np.histogram_bin_edges(
+                expected,
+                bins=bins,
+            )
+
+            expected_counts, _ = np.histogram(
+                expected,
+                bins=breakpoints,
+            )
+
+            actual_counts, _ = np.histogram(
+                actual,
+                bins=breakpoints,
+            )
+
+            expected_percents = (
+                expected_counts + EPSILON
+            ) / (
+                np.sum(expected_counts)
+                + EPSILON
+            )
+
+            actual_percents = (
+                actual_counts + EPSILON
+            ) / (
+                np.sum(actual_counts)
+                + EPSILON
+            )
+
+            psi_values = (
+                expected_percents
+                - actual_percents
+            ) * np.log(
+                expected_percents
+                / actual_percents
+            )
+
+            psi_score = np.sum(psi_values)
+
+            if np.isnan(psi_score):
+                return 0.0
+
+            if np.isinf(psi_score):
+                return 999.0
+
+            return float(psi_score)
+
+        except Exception as error:
+            logger.warning(
+                "PSI computation failed: %s",
+                str(error),
+            )
+
+            return 0.0
 
     @staticmethod
-    def compute_all_psi(df_expected: pd.DataFrame, df_actual: pd.DataFrame, buckets: int = 10, epsilon: float = 1e-4) -> List[Dict[str, Any]]:
-        """Computes PSI for all numeric features and returns a structured list."""
-        numeric_cols = df_expected.select_dtypes(include=[np.number]).columns
-        results = []
-        
-        for col in numeric_cols:
-            if col in df_actual.columns:
-                psi_result = AdvancedDiagnostics._compute_single_psi(
-                    df_expected[col].values, df_actual[col].values, buckets, epsilon
-                )
-                results.append({
-                    "Feature": col,
-                    "PSI Score": round(psi_result["score"], 4),
-                    "Drift Severity": psi_result["severity"].upper()
-                })
-        
-        return sorted(results, key=lambda x: x["PSI Score"], reverse=True)
-
-    @staticmethod
-    def _compute_single_psi(expected: np.ndarray, actual: np.ndarray, buckets: int, epsilon: float) -> Dict[str, Any]:
-        """Core PSI math with stable quantile binning."""
-        try:
-            if len(expected) == 0 or len(actual) == 0:
-                return {"score": 0.0, "severity": "low"}
-                
-            expected = expected[~np.isnan(expected) & ~np.isinf(expected)]
-            actual = actual[~np.isnan(actual) & ~np.isinf(actual)]
-            
-            if len(np.unique(expected)) <= 1 or len(np.unique(actual)) <= 1:
-                return {"score": 0.0, "severity": "low"}
-
-            breakpoints = np.linspace(0, 100, buckets + 1)
-            percentiles = np.percentile(expected, breakpoints)
-            percentiles = np.unique(percentiles)
-            
-            if len(percentiles) < 2:
-                return {"score": 0.0, "severity": "low"}
-
-            expected_fractions = np.histogram(expected, bins=percentiles)[0] / len(expected)
-            actual_fractions = np.histogram(actual, bins=percentiles)[0] / len(actual)
-
-            expected_fractions = np.where(expected_fractions == 0, epsilon, expected_fractions)
-            actual_fractions = np.where(actual_fractions == 0, epsilon, actual_fractions)
-
-            psi = np.sum((actual_fractions - expected_fractions) * np.log(actual_fractions / expected_fractions))
-            score = float(psi)
-            
-            if score < 0.1: severity = "low"
-            elif score < 0.2: severity = "medium"
-            else: severity = "high"
-                
-            return {"score": score, "severity": severity}
-        except Exception:
-            return {"score": 0.0, "severity": "low"}
-
-    @staticmethod
-    def compute_informative_missingness(df: pd.DataFrame, target_col: str, task_type: str) -> List[Dict[str, Any]]:
+    def compute_all_psi(
+        train_df: pd.DataFrame,
+        test_df: pd.DataFrame,
+    ) -> List[Dict[str, Any]]:
         """
-        Detects if the ABSENCE of a value correlates with the target.
-        This often indicates structural leakage or biased data collection.
+        Stable dataframe-wide PSI analysis.
         """
-        if target_col not in df.columns:
-            return []
-            
-        warnings = []
-        target = df[target_col]
-        
-        # Only compute for features with actual missing values
-        missing_cols = df.columns[df.isnull().sum() > 0]
-        
-        for col in missing_cols:
-            if col == target_col: continue
-            
-            missing_indicator = df[col].isnull().astype(int)
-            
-            try:
-                if task_type == 'classification' and target.nunique() == 2:
-                    # Point biserial correlation for binary target
-                    corr, p_value = pointbiserialr(missing_indicator, target.astype(float))
-                else:
-                    # Standard Pearson for continuous target or multi-class proxy
-                    corr = missing_indicator.corr(target)
-                
-                if pd.notna(corr) and abs(corr) > 0.3:  # 0.3 is a strong signal for just missingness
-                    severity = "critical" if abs(corr) > 0.5 else "high"
-                    warnings.append({
-                        "column": col,
-                        "correlation": float(abs(corr)),
-                        "severity": severity,
-                        "description": f"Missing values in {col} strongly predict the target (Corr: {abs(corr):.2f})."
-                    })
-            except Exception:
+
+        psi_results = []
+
+        numeric_columns = (
+            train_df.select_dtypes(
+                include=[np.number]
+            ).columns
+        )
+
+        for column in numeric_columns:
+            if column not in test_df.columns:
                 continue
-                
-        return sorted(warnings, key=lambda x: x["correlation"], reverse=True)
+
+            try:
+                psi_score = (
+                    AdvancedDiagnostics.compute_psi(
+                        train_df[column],
+                        test_df[column],
+                    )
+                )
+
+                drift_severity = (
+                    AdvancedDiagnostics._resolve_psi_severity(
+                        psi_score
+                    )
+                )
+
+                psi_results.append(
+                    {
+                        "Feature": column,
+                        "PSI Score": round(
+                            psi_score,
+                            4,
+                        ),
+                        "Drift Severity": (
+                            drift_severity
+                        ),
+                    }
+                )
+
+            except Exception as error:
+                logger.warning(
+                    "PSI analysis failed "
+                    "for feature '%s': %s",
+                    column,
+                    str(error),
+                )
+
+        psi_results.sort(
+            key=lambda item:
+            item["PSI Score"],
+            reverse=True,
+        )
+
+        return psi_results
 
     @staticmethod
-    def compute_train_test_variance_ratio(X_train: pd.DataFrame, X_test: pd.DataFrame) -> List[Dict[str, Any]]:
+    def _resolve_psi_severity(
+        psi_score: float,
+    ) -> str:
         """
-        Detects volatility and distribution collapse between splits.
-        A ratio >> 1 or << 1 indicates the feature scale breaks down in production.
+        Stable PSI severity mapping.
         """
-        volatility = []
-        numeric_cols = X_train.select_dtypes(include=[np.number]).columns
-        
-        for col in numeric_cols:
-            if col in X_test.columns:
-                var_train = X_train[col].var()
-                var_test = X_test[col].var()
-                
-                if var_train > 1e-5 and var_test > 1e-5:
-                    ratio = max(var_train / var_test, var_test / var_train)
-                    if ratio > 3.0: # Variance changed by more than 3x
-                        severity = "critical" if ratio > 10.0 else "high"
-                        volatility.append({
-                            "column": col,
-                            "variance_ratio": float(ratio),
-                            "severity": severity,
-                            "description": f"Feature variance collapses/explodes across splits (Ratio: {ratio:.1f}x)."
-                        })
-        return sorted(volatility, key=lambda x: x["variance_ratio"], reverse=True)
+
+        if psi_score >= 0.50:
+            return "HIGH"
+
+        if psi_score >= 0.25:
+            return "MEDIUM"
+
+        return "LOW"
+
+    # ==========================================================
+    # ROW OVERLAP ANALYSIS
+    # ==========================================================
 
     @staticmethod
-    def calculate_row_overlap(df1: pd.DataFrame, df2: pd.DataFrame) -> Tuple[int, float]:
-        """Scalable train/test overlap detection using row hashing."""
-        if df1.empty or df2.empty:
+    def calculate_row_overlap(
+        train_df: pd.DataFrame,
+        test_df: pd.DataFrame,
+    ) -> Tuple[int, float]:
+        """
+        Stable train/test overlap analysis.
+        """
+
+        try:
+            train_hashes = set()
+
+            for _, row in train_df.iterrows():
+                train_hashes.add(
+                    hash(
+                        tuple(
+                            row.astype(str)
+                        )
+                    )
+                )
+
+            overlap_count = 0
+
+            for _, row in test_df.iterrows():
+                row_hash = hash(
+                    tuple(
+                        row.astype(str)
+                    )
+                )
+
+                if row_hash in train_hashes:
+                    overlap_count += 1
+
+            overlap_pct = (
+                overlap_count
+                / max(len(test_df), 1)
+            ) * 100
+
+            return (
+                int(overlap_count),
+                float(overlap_pct),
+            )
+
+        except Exception as error:
+            logger.warning(
+                "Row overlap analysis failed: %s",
+                str(error),
+            )
+
             return 0, 0.0
-        df1_hashes = set(pd.util.hash_pandas_object(df1, index=False))
-        df2_hashes = set(pd.util.hash_pandas_object(df2, index=False))
-        overlap_count = len(df1_hashes.intersection(df2_hashes))
-        overlap_pct = (overlap_count / len(df2_hashes)) * 100 if len(df2_hashes) > 0 else 0.0
-        return overlap_count, float(overlap_pct)
 
-class FeatureNameCleaner:
-    def clean_feature_name(self, name: str) -> str:
-        if not isinstance(name, str): return str(name)
-        cleaned = name.replace('num__', '').replace('cat__', '').replace('remainder__', '')
-        if '_' in cleaned and not any(c.isdigit() and c == cleaned[0] for c in cleaned):
-            parts = cleaned.split('_', 1) 
-            if len(parts) == 2:
-                cleaned = f"{parts[0].title()} - {parts[1].title()}"
-        else:
-            cleaned = cleaned.replace('_', ' ').title()
-        return cleaned
+    # ==========================================================
+    # VARIANCE STABILITY
+    # ==========================================================
+
+    @staticmethod
+    def compute_train_test_variance_ratio(
+        train_df: pd.DataFrame,
+        test_df: pd.DataFrame,
+    ) -> List[Dict[str, Any]]:
+        """
+        Stable variance stability analysis.
+        """
+
+        issues = []
+
+        numeric_columns = (
+            train_df.select_dtypes(
+                include=[np.number]
+            ).columns
+        )
+
+        for column in numeric_columns:
+            if column not in test_df.columns:
+                continue
+
+            try:
+                train_variance = np.var(
+                    pd.to_numeric(
+                        train_df[column],
+                        errors="coerce",
+                    ).dropna()
+                )
+
+                test_variance = np.var(
+                    pd.to_numeric(
+                        test_df[column],
+                        errors="coerce",
+                    ).dropna()
+                )
+
+                variance_ratio = (
+                    max(
+                        train_variance,
+                        test_variance,
+                    )
+                    / (
+                        min(
+                            train_variance,
+                            test_variance,
+                        )
+                        + EPSILON
+                    )
+                )
+
+                if variance_ratio > 3:
+                    severity = (
+                        "critical"
+                        if variance_ratio > 10
+                        else "high"
+                    )
+
+                    issues.append(
+                        {
+                            "type":
+                            "variance_instability",
+                            "column":
+                            column,
+                            "severity":
+                            severity,
+                            "description": (
+                                f"Variance instability "
+                                f"detected "
+                                f"(ratio="
+                                f"{variance_ratio:.2f})."
+                            ),
+                        }
+                    )
+
+            except Exception as error:
+                logger.warning(
+                    "Variance analysis failed "
+                    "for '%s': %s",
+                    column,
+                    str(error),
+                )
+
+        return issues
+
+    # ==========================================================
+    # INFORMATIVE MISSINGNESS
+    # ==========================================================
+
+    @staticmethod
+    def compute_informative_missingness(
+        dataframe: pd.DataFrame,
+        target_column: str,
+        task_type: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Detects target-correlated missingness.
+        """
+
+        issues = []
+
+        if target_column not in dataframe.columns:
+            return issues
+
+        target = dataframe[target_column]
+
+        for column in dataframe.columns:
+            if column == target_column:
+                continue
+
+            try:
+                missing_mask = (
+                    dataframe[column]
+                    .isna()
+                    .astype(int)
+                )
+
+                if (
+                    missing_mask.sum() == 0
+                ):
+                    continue
+
+                if task_type == "classification":
+                    grouped = target.groupby(
+                        missing_mask
+                    ).mean()
+
+                    if len(grouped) < 2:
+                        continue
+
+                    delta = abs(
+                        grouped.iloc[0]
+                        - grouped.iloc[1]
+                    )
+
+                else:
+                    grouped = target.groupby(
+                        missing_mask
+                    ).mean()
+
+                    if len(grouped) < 2:
+                        continue
+
+                    delta = abs(
+                        grouped.iloc[0]
+                        - grouped.iloc[1]
+                    )
+
+                if delta > 0.15:
+                    severity = (
+                        "high"
+                        if delta > 0.30
+                        else "medium"
+                    )
+
+                    issues.append(
+                        {
+                            "type":
+                            "informative_missingness",
+                            "column":
+                            column,
+                            "severity":
+                            severity,
+                            "description": (
+                                f"Missingness appears "
+                                f"target-correlated "
+                                f"(delta={delta:.3f})."
+                            ),
+                        }
+                    )
+
+            except Exception as error:
+                logger.warning(
+                    "Missingness analysis failed "
+                    "for '%s': %s",
+                    column,
+                    str(error),
+                )
+
+        return issues
+
+    # ==========================================================
+    # MULTICOLLINEARITY
+    # ==========================================================
+
+    @staticmethod
+    def compute_vif(
+        dataframe: pd.DataFrame,
+    ) -> Dict[str, float]:
+        """
+        Numerically stable VIF analysis.
+        """
+
+        try:
+            numeric_df = dataframe.select_dtypes(
+                include=[np.number]
+            ).copy()
+
+            if numeric_df.empty:
+                return {}
+
+            numeric_df = numeric_df.replace(
+                [np.inf, -np.inf],
+                np.nan,
+            )
+
+            numeric_df = numeric_df.dropna(
+                axis=1,
+                how="all",
+            )
+
+            numeric_df = numeric_df.fillna(
+                numeric_df.median(
+                    numeric_only=True
+                )
+            )
+
+            # Prevent pathological VIF runtime
+            if (
+                len(numeric_df.columns)
+                > MAX_VIF_FEATURES
+            ):
+                numeric_df = numeric_df.iloc[
+                    :,
+                    :MAX_VIF_FEATURES,
+                ]
+
+            constant_columns = [
+                column
+                for column in numeric_df.columns
+                if numeric_df[column].nunique()
+                <= 1
+            ]
+
+            numeric_df = numeric_df.drop(
+                columns=constant_columns,
+                errors="ignore",
+            )
+
+            if numeric_df.empty:
+                return {}
+
+            vif_scores = {}
+
+            values = numeric_df.values.astype(
+                float
+            )
+
+            for index, column in enumerate(
+                numeric_df.columns
+            ):
+                try:
+                    vif_score = (
+                        variance_inflation_factor(
+                            values,
+                            index,
+                        )
+                    )
+
+                    if np.isnan(vif_score):
+                        continue
+
+                    if np.isinf(vif_score):
+                        vif_score = 999.0
+
+                    vif_scores[column] = float(
+                        round(vif_score, 4)
+                    )
+
+                except Exception:
+                    continue
+
+            vif_scores = dict(
+                sorted(
+                    vif_scores.items(),
+                    key=lambda item:
+                    item[1],
+                    reverse=True,
+                )
+            )
+
+            return vif_scores
+
+        except Exception as error:
+            logger.warning(
+                "VIF computation failed: %s",
+                str(error),
+            )
+
+            return {}
+
+    # ==========================================================
+    # HIGH CARDINALITY ANALYSIS
+    # ==========================================================
+
+    @staticmethod
+    def detect_high_cardinality_features(
+        dataframe: pd.DataFrame,
+        threshold: int = MAX_CATEGORY_UNIQUES,
+    ) -> List[Dict[str, Any]]:
+        """
+        Stable categorical cardinality analysis.
+        """
+
+        issues = []
+
+        categorical_columns = (
+            dataframe.select_dtypes(
+                include=["object", "category"]
+            ).columns
+        )
+
+        for column in categorical_columns:
+            try:
+                unique_count = dataframe[
+                    column
+                ].nunique(dropna=True)
+
+                if unique_count > threshold:
+                    severity = (
+                        "high"
+                        if unique_count > threshold * 3
+                        else "medium"
+                    )
+
+                    issues.append(
+                        {
+                            "type":
+                            "high_cardinality",
+                            "column":
+                            column,
+                            "severity":
+                            severity,
+                            "description": (
+                                f"High-cardinality "
+                                f"feature detected "
+                                f"({unique_count} unique "
+                                f"values)."
+                            ),
+                        }
+                    )
+
+            except Exception as error:
+                logger.warning(
+                    "Cardinality analysis failed "
+                    "for '%s': %s",
+                    column,
+                    str(error),
+                )
+
+        return issues
