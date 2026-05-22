@@ -1,13 +1,17 @@
 [theme]
+primaryColor = "#3498db"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f8f9fa"
+textColor = "#1f1f1f"
+font = "sans serif"
 
-base="dark"
+[client]
+toolbarMode = "minimal"
+showErrorDetails = true
 
-primaryColor="#ff4b4b"
+[logger]
+level = "info"
 
-backgroundColor="#0e1117"
-
-secondaryBackgroundColor="#1c1f26"
-
-textColor="#fafafa"
-
-font="sans serif"
+[browser]
+gatherUsageStats = false
+serverAddress = "localhost"
