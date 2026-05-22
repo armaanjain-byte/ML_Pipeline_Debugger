@@ -28,11 +28,14 @@ class DataCheckConfig:
     """Configuration for data validation thresholds"""
     missing_threshold: float = 50.0  # Drop columns > 50% missing
     constant_threshold: int = 1  # Features with nunique <= this
-    correlation_threshold: float = 0.9  # High correlation threshold
-    imbalance_threshold: float = 0.3  # Minority class % threshold
+    near_constant_threshold: float = 0.01  # Variance or frequency < 1%
+    correlation_threshold: float = 0.85  # Flag multicollinearity between features
+    imbalance_threshold: float = 20.0  # Minority class % threshold
+    high_cardinality_threshold: int = 100  # Unique categories
+    skewness_threshold: float = 2.0  # Distribution skew
     duplicate_check: bool = True
     LEAKAGE_THRESHOLD: float = 0.90  # Flag any feature with >90% correlation to target
-    CORRELATION_THRESHOLD: float = 0.85  # Flag multicollinearity between features
+    CORRELATION_THRESHOLD: float = 0.85  # Kept for backwards compatibility
 
 
 @dataclass

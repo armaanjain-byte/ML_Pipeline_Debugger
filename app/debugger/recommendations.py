@@ -1,100 +1,69 @@
 from typing import Dict, Any, List
 
 class RecommendationEngine:
-    """Generates actionable engineering recommendations based on diagnostic issues."""
+    """Generates context-aware, structured engineering recommendations."""
     
-    # Recommendation templates with context
     RECOMMENDATION_CONTEXT = {
         "target_leakage": {
-            "title": "Remove Leaking Feature",
-            "severity": "critical",
-            "action": "remove_leaking_feature",
-            "recommendations": [
-                "Drop the feature from the dataset immediately.",
-                "Verify if this data point is actually available at prediction time in production.",
-                "Review the data collection pipeline to understand how leakage occurred."
+            "title": "Remove Leaking Feature Pathway",
+            "impact": "Prevents catastrophic 0% accuracy in production.",
+            "actions": [
+                "Drop the feature from the training dataset entirely.",
+                "Review data warehouse logic. Ensure this column isn't populated *after* the prediction event."
             ],
-            "rationale": "Features nearly identical to the target indicate data leakage, resulting in artificially high accuracy during training but catastrophic failure in production."
+            "rationale": "High correlation with the target indicates the feature contains future information. The model will memorize this shortcut."
         },
-        "multivariate_outliers": {
-            "title": "Investigate Multivariate Anomalies",
-            "severity": "high",
-            "action": "investigate_anomalies",
-            "recommendations": [
-                "Examine the identified multivariate outliers in detail.",
-                "Consider using robust scaling algorithms (e.g., RobustScaler).",
-                "Evaluate outlier removal or robust regression techniques."
+        "split_overlap": {
+            "title": "Resolve Train/Test Overlap (Data Leakage)",
+            "impact": "Restores trust in your holdout evaluation metrics.",
+            "actions": [
+                "Ensure row identifiers are unique.",
+                "Use GroupKFold if rows represent the same logical entity across time.",
+                "Deduplicate the raw dataset before the train_test_split."
             ],
-            "rationale": "Multivariate outliers represent unusual combinations of features that can severely bias distance-based models and distort predictions."
+            "rationale": "Identical rows in both Train and Test sets cause the model to 'memorize' the test set, creating artificially inflated metrics."
         },
-        "outliers": {
-            "title": "Address Univariate Outliers",
-            "severity": "medium",
-            "action": "investigate_remove",
-            "recommendations": [
-                "Investigate the root cause of outliers in this feature.",
-                "Consider log or Box-Cox transformations for skewed distributions.",
-                "Use robust scaling (median/IQR based) instead of standard scaling."
+        "feature_drift": {
+            "title": "Mitigate Distribution Drift (High PSI)",
+            "impact": "Prevents concept drift decay in production.",
+            "actions": [
+                "If the split was temporal, this is valid drift. Use robust scaling.",
+                "If the split was random, your seed resulted in a biased sample. Stratify your splits.",
+                "Drop the drifting feature if it provides low feature importance."
             ],
-            "rationale": "High outlier percentages may indicate data quality issues, measurement errors, or extreme right-skew distributions that violate model assumptions."
+            "rationale": "High PSI indicates the feature's statistical distribution changed significantly between training and evaluation spaces."
         },
-        "high_correlation": {
-            "title": "Reduce Multicollinearity",
-            "severity": "medium",
-            "action": "reduce_multicollinearity",
-            "recommendations": [
-                "Drop one of the highly correlated features.",
-                "Use PCA (Principal Component Analysis) to compress the feature space.",
-                "Apply L1 (Lasso) or L2 (Ridge) regularization for coefficient shrinkage."
+        "informative_missingness": {
+            "title": "Address Informative Missingness",
+            "impact": "Prevents the model from learning a structural data-collection bias.",
+            "actions": [
+                "Investigate WHY the data is missing. Is the absence of the value caused by the target event?",
+                "If it's a collection artifact, drop the feature. If it's valid behavior, explicitly create an 'is_missing' indicator."
             ],
-            "rationale": "Highly correlated features inflate model variance, make coefficients unstable, and render feature importance calculations unreliable."
+            "rationale": "The absence of a value (NaN) correlates strongly with your target. Imputing this blindly will destroy a massive signal, while leaving it unchecked might be leakage."
         },
-        "class_imbalance": {
-            "title": "Handle Class Imbalance",
-            "severity": "high",
-            "action": "apply_balancing_techniques",
-            "recommendations": [
-                "Implement SMOTE (Synthetic Minority Over-sampling Technique).",
-                "Configure class_weight='balanced' in the estimator.",
-                "Evaluate using Precision/Recall, AUC-ROC, or F1-score instead of Accuracy."
+        "feature_volatility": {
+            "title": "Stabilize Feature Variance Collapse",
+            "impact": "Ensures distance-based algorithms and neural networks do not explode.",
+            "actions": [
+                "Apply Log1p or PowerTransformer to compress the scale.",
+                "Check for extreme outliers in the Train set that didn't make it to the Test set."
             ],
-            "rationale": "Imbalanced targets cause models to degenerate into predicting only the majority class, resulting in high nominal accuracy but poor minority class recall."
+            "rationale": "The variance of this feature shifts massively (>>3x) between Train and Test sets, meaning its scale is unstable across splits."
         },
-        "missing_values": {
-            "title": "Handle Missing Values",
-            "severity": "medium",
-            "action": "impute_or_drop",
-            "recommendations": [
-                "If missing completely at random: use median/mode imputation.",
-                "If missing systematically: build a surrogate model for imputation.",
-                "If > 50% missing: consider dropping the column entirely."
+        "multicollinearity": {
+            "title": "Reduce Multicollinearity (High VIF)",
+            "impact": "Stabilizes coefficients and feature importance attributions.",
+            "actions": [
+                "Drop the feature with the higher VIF score.",
+                "Use PCA to compress the correlated feature space."
             ],
-            "rationale": "Standard ML algorithms cannot process NaN values natively, and different imputation strategies have varying effects on model behavior."
-        },
-        "constant_feature": {
-            "title": "Remove Constant Features",
-            "severity": "high",
-            "action": "drop_feature",
-            "recommendations": [
-                "Drop the feature prior to training.",
-                "Verify that constant values are not encoding important metadata."
-            ],
-            "rationale": "Zero-variance features contain zero information and unnecessarily increase computational overhead without contributing to predictions."
-        },
-        "duplicate_rows": {
-            "title": "Handle Duplicate Rows",
-            "severity": "medium",
-            "action": "drop_duplicates",
-            "recommendations": [
-                "Run df.drop_duplicates() early in the pipeline.",
-                "Verify whether these duplicates are data quality issues or valid repeating events."
-            ],
-            "rationale": "Duplicate rows artificially over-weight specific data points, causing the model to overfit on repeated samples."
+            "rationale": "High Variance Inflation Factor (VIF) destabilizes the model, inflates variance, and makes interpretability impossible."
         }
     }
     
     def generate(self, checks_output: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate actionable recommendations from diagnostic results."""
+        """Generate structured recommendations bound to diagnostic evidence."""
         issues = checks_output.get("issues", [])
         recommendations = []
         
@@ -102,40 +71,36 @@ class RecommendationEngine:
         severity_counts = {'critical': 0, 'high': 0, 'medium': 0, 'low': 0}
         
         for issue in issues:
-            issue_type = issue["type"]
+            issue_type = issue.get("type", "unknown")
+            severity = issue.get("severity", "medium")
             
-            # Start with basic recommendation structure
             rec = {
-                "type": issue_type,
-                "column": issue["column"],
-                "severity": issue["severity"],
-                "description": issue["description"]
+                "title": issue_type.replace('_', ' ').title(),
+                "severity": severity,
+                "description": issue.get("description", "Anomaly detected."),
+                "rationale": "Data quality anomaly detected requiring engineering investigation.",
+                "impact": "Improves overall model stability.",
+                "actions": ["Conduct a manual review of this feature."],
+                "column": issue.get("column", "unknown"),
+                "issue_type": issue_type
             }
             
-            # Add contextual information
             if issue_type in self.RECOMMENDATION_CONTEXT:
                 context = self.RECOMMENDATION_CONTEXT[issue_type]
                 rec.update({
                     "title": context["title"],
-                    "action": context["action"],
-                    "recommendations": context["recommendations"],
-                    "rationale": context["rationale"]
-                })
-            else:
-                # Fallback for unknown issue types
-                rec.update({
-                    "title": issue_type.replace('_', ' ').title(),
-                    "action": "review_manually",
-                    "recommendations": ["Conduct a manual review of this issue to determine impact."],
-                    "rationale": "Data quality anomaly detected that requires investigation."
+                    "rationale": context["rationale"],
+                    "impact": context["impact"],
+                    "actions": context["actions"]
                 })
             
-            # Track severity
-            if issue["severity"] == "critical":
-                critical_count += 1
-            severity_counts[issue["severity"]] += 1
+            if severity == "critical": critical_count += 1
+            if severity in severity_counts: severity_counts[severity] += 1
             
             recommendations.append(rec)
+            
+        severity_map = {'critical': 0, 'high': 1, 'medium': 2, 'low': 3}
+        recommendations.sort(key=lambda x: severity_map.get(x['severity'], 4))
         
         return {
             "recommendations": recommendations,

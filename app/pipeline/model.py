@@ -8,6 +8,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.inspection import permutation_importance
 import logging
 
 logger = logging.getLogger(__name__)
@@ -22,25 +23,27 @@ class Model:
         self.dev_mode = dev_mode
         self.pipeline = None
         self.feature_names_in_ = None
+        self._X_train_cache = None
+        self._y_train_cache = None
+
     def _build_pipeline(self, X: pd.DataFrame):
         """Dynamically builds a preprocessing pipeline based on data types."""
         numeric_features = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
         categorical_features = X.select_dtypes(include=['object', 'category', 'bool']).columns.tolist()
         
         for col in categorical_features:
-             unique_count = X[col].nunique()
-             if unique_count > 100:
-                  logger.warning(f"Feature '{col}' has high cardinality ({unique_count} unique values). Consider Target Encoding.")
+            unique_count = X[col].nunique()
+            if unique_count > 100:
+                logger.warning(f"Feature '{col}' has high cardinality ({unique_count} unique values). Consider Target Encoding.")
 
-# Use sparse_output=True if the data is large to save memory
+        # Ensure sparse_output=False so get_feature_names_out and permutation logic are easier to manage
         categorical_transformer = Pipeline(steps=[
-             ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=True)) 
+             ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False)) 
         ])
-        # Route 1: Scale numbers
+        
         numeric_transformer = Pipeline(steps=[
             ('scaler', StandardScaler())
         ])
-
     
         # Combine routes
         preprocessor = ColumnTransformer(
@@ -49,21 +52,21 @@ class Model:
                 ('cat', categorical_transformer, categorical_features)
             ])
 
-        # Define the base estimator (Keeping dev-mode settings for speed)
-        if self.dev_mode:
-            # Lightweight settings for 3-second testing
-            model_kwargs = {"n_estimators": 10, "max_depth": 5, "random_state": self.random_state, "n_jobs": -1}
+        # Apply base estimator
+        if self.custom_estimator is not None:
+            estimator = self.custom_estimator
         else:
-            # Production settings (What your config.py actually intended)
-            model_kwargs = {"n_estimators": 100, "max_depth": None, "random_state": self.random_state, "n_jobs": -1}
+            if self.dev_mode:
+                model_kwargs = {"n_estimators": 10, "max_depth": 5, "random_state": self.random_state, "n_jobs": -1}
+            else:
+                model_kwargs = {"n_estimators": 100, "max_depth": None, "random_state": self.random_state, "n_jobs": -1}
 
-        # Define the base estimator using the dynamic kwargs
-        if self.task_type == "regression":
-            estimator = RandomForestRegressor(**model_kwargs)
-        elif self.task_type == "classification":
-            estimator = RandomForestClassifier(**model_kwargs)
-        else:
-            raise ValueError(f"Unknown task type: {self.task_type}")
+            if self.task_type == "regression":
+                estimator = RandomForestRegressor(**model_kwargs)
+            elif self.task_type == "classification":
+                estimator = RandomForestClassifier(**model_kwargs)
+            else:
+                raise ValueError(f"Unknown task type: {self.task_type}")
 
         # The final pipeline object
         self.pipeline = Pipeline(steps=[
@@ -74,6 +77,8 @@ class Model:
     def train(self, X_train: pd.DataFrame, y_train: pd.Series):
         """Builds the pipeline and trains the model."""
         self.feature_names_in_ = X_train.columns.tolist()
+        self._X_train_cache = X_train.copy()
+        self._y_train_cache = y_train.copy()
         self._build_pipeline(X_train)
         self.pipeline.fit(X_train, y_train)
 
@@ -104,31 +109,57 @@ class Model:
         scores = cross_val_score(self.pipeline, X_train, y_train, cv=cv, scoring=scoring, n_jobs=-1)
         
         if self.task_type == 'regression':
-            scores = -scores # Scikit-learn returns negative MSE/RMSE
+            scores = -scores
 
         return {
             f"cv_mean_{scoring.replace('neg_', '')}": float(scores.mean()),
             f"cv_std_{scoring.replace('neg_', '')}": float(scores.std()),
             "cv_folds": cv
         }
-    # app/pipeline/model.py
 
-def feature_importance(self, feature_names: List[str]) -> Dict[str, float]:
-        """Extracts feature importance with correct mapping for encoded features."""
+    def feature_importance(self, feature_names: List[str] = None) -> Dict[str, float]:
+        """Extracts feature importance using a robust fallback hierarchy (Tree -> Linear -> Permutation)."""
         if self.pipeline is None:
             return {}
     
         try:
-            # 1. Get the trained estimator
             estimator = self.pipeline.named_steps['estimator']
-            importances = estimator.feature_importances_
-            
-            # 2. Get the transformed feature names from the preprocessor
             preprocessor = self.pipeline.named_steps['preprocessor']
-            # This correctly handles the expansion from OneHotEncoder
-            transformed_names = preprocessor.get_feature_names_out()
             
-            # 3. Map and sort
+            try:
+                transformed_names = preprocessor.get_feature_names_out()
+            except Exception:
+                transformed_names = [f"feature_{i}" for i in range(getattr(estimator, 'n_features_in_', 0))]
+            
+            importances = None
+
+            # Priority 1: Tree-based feature importances
+            if hasattr(estimator, 'feature_importances_'):
+                importances = estimator.feature_importances_
+            
+            # Priority 2: Linear model coefficients
+            elif hasattr(estimator, 'coef_'):
+                importances = np.abs(estimator.coef_[0]) if estimator.coef_.ndim > 1 else np.abs(estimator.coef_)
+            
+            # Priority 3: Permutation Importance Fallback
+            else:
+                if self._X_train_cache is not None and self._y_train_cache is not None:
+                    # Transform X once for the estimator to avoid full pipeline permutation overhead
+                    X_transformed = preprocessor.transform(self._X_train_cache)
+                    result = permutation_importance(
+                        estimator, X_transformed, self._y_train_cache, 
+                        n_repeats=5, random_state=self.random_state, n_jobs=-1
+                    )
+                    importances = result.importances_mean
+
+            if importances is None or len(importances) == 0:
+                return {}
+
+            # Normalize importances so they scale properly in visualization
+            total_importance = np.sum(importances)
+            if total_importance > 0:
+                importances = importances / total_importance
+            
             feat_imp = dict(zip(transformed_names, importances))
             return dict(sorted(feat_imp.items(), key=lambda item: item[1], reverse=True))
             

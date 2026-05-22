@@ -1,253 +1,187 @@
 """
-Feature utilities for cleaning transformed feature names and analyzing correlations.
-Provides observability for high-cardinality and encoded features.
+Feature utilities for deep diagnostic analysis.
+Computes VIF, PSI (Feature Drift), Informative Missingness, Volatility, and Overlap Hashing.
 """
 
 import re
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any
 import pandas as pd
 import numpy as np
+import logging
+from scipy.stats import pointbiserialr
 
+logger = logging.getLogger(__name__)
+
+class AdvancedDiagnostics:
+    """Deep statistical diagnostics for ML reliability."""
+    
+    @staticmethod
+    def compute_vif(df: pd.DataFrame) -> Dict[str, float]:
+        """
+        Computes Variance Inflation Factor (VIF) using the pseudo-inverse correlation matrix.
+        """
+        numeric_df = df.select_dtypes(include=[np.number])
+        numeric_df = numeric_df.replace([np.inf, -np.inf], np.nan).dropna()
+        
+        variances = numeric_df.var()
+        numeric_df = numeric_df.loc[:, variances > 1e-5]
+        
+        if numeric_df.shape[1] < 2:
+            return {}
+            
+        try:
+            corr = numeric_df.corr().values
+            inv_corr = np.linalg.pinv(corr)
+            vif_values = np.diag(inv_corr)
+            
+            vif_dict = {col: float(val) for col, val in zip(numeric_df.columns, vif_values)}
+            return dict(sorted(vif_dict.items(), key=lambda x: x[1], reverse=True))
+        except Exception as e:
+            logger.warning(f"VIF computation gracefully aborted: {str(e)}")
+            return {}
+
+    @staticmethod
+    def compute_all_psi(df_expected: pd.DataFrame, df_actual: pd.DataFrame, buckets: int = 10, epsilon: float = 1e-4) -> List[Dict[str, Any]]:
+        """Computes PSI for all numeric features and returns a structured list."""
+        numeric_cols = df_expected.select_dtypes(include=[np.number]).columns
+        results = []
+        
+        for col in numeric_cols:
+            if col in df_actual.columns:
+                psi_result = AdvancedDiagnostics._compute_single_psi(
+                    df_expected[col].values, df_actual[col].values, buckets, epsilon
+                )
+                results.append({
+                    "Feature": col,
+                    "PSI Score": round(psi_result["score"], 4),
+                    "Drift Severity": psi_result["severity"].upper()
+                })
+        
+        return sorted(results, key=lambda x: x["PSI Score"], reverse=True)
+
+    @staticmethod
+    def _compute_single_psi(expected: np.ndarray, actual: np.ndarray, buckets: int, epsilon: float) -> Dict[str, Any]:
+        """Core PSI math with stable quantile binning."""
+        try:
+            if len(expected) == 0 or len(actual) == 0:
+                return {"score": 0.0, "severity": "low"}
+                
+            expected = expected[~np.isnan(expected) & ~np.isinf(expected)]
+            actual = actual[~np.isnan(actual) & ~np.isinf(actual)]
+            
+            if len(np.unique(expected)) <= 1 or len(np.unique(actual)) <= 1:
+                return {"score": 0.0, "severity": "low"}
+
+            breakpoints = np.linspace(0, 100, buckets + 1)
+            percentiles = np.percentile(expected, breakpoints)
+            percentiles = np.unique(percentiles)
+            
+            if len(percentiles) < 2:
+                return {"score": 0.0, "severity": "low"}
+
+            expected_fractions = np.histogram(expected, bins=percentiles)[0] / len(expected)
+            actual_fractions = np.histogram(actual, bins=percentiles)[0] / len(actual)
+
+            expected_fractions = np.where(expected_fractions == 0, epsilon, expected_fractions)
+            actual_fractions = np.where(actual_fractions == 0, epsilon, actual_fractions)
+
+            psi = np.sum((actual_fractions - expected_fractions) * np.log(actual_fractions / expected_fractions))
+            score = float(psi)
+            
+            if score < 0.1: severity = "low"
+            elif score < 0.2: severity = "medium"
+            else: severity = "high"
+                
+            return {"score": score, "severity": severity}
+        except Exception:
+            return {"score": 0.0, "severity": "low"}
+
+    @staticmethod
+    def compute_informative_missingness(df: pd.DataFrame, target_col: str, task_type: str) -> List[Dict[str, Any]]:
+        """
+        Detects if the ABSENCE of a value correlates with the target.
+        This often indicates structural leakage or biased data collection.
+        """
+        if target_col not in df.columns:
+            return []
+            
+        warnings = []
+        target = df[target_col]
+        
+        # Only compute for features with actual missing values
+        missing_cols = df.columns[df.isnull().sum() > 0]
+        
+        for col in missing_cols:
+            if col == target_col: continue
+            
+            missing_indicator = df[col].isnull().astype(int)
+            
+            try:
+                if task_type == 'classification' and target.nunique() == 2:
+                    # Point biserial correlation for binary target
+                    corr, p_value = pointbiserialr(missing_indicator, target.astype(float))
+                else:
+                    # Standard Pearson for continuous target or multi-class proxy
+                    corr = missing_indicator.corr(target)
+                
+                if pd.notna(corr) and abs(corr) > 0.3:  # 0.3 is a strong signal for just missingness
+                    severity = "critical" if abs(corr) > 0.5 else "high"
+                    warnings.append({
+                        "column": col,
+                        "correlation": float(abs(corr)),
+                        "severity": severity,
+                        "description": f"Missing values in {col} strongly predict the target (Corr: {abs(corr):.2f})."
+                    })
+            except Exception:
+                continue
+                
+        return sorted(warnings, key=lambda x: x["correlation"], reverse=True)
+
+    @staticmethod
+    def compute_train_test_variance_ratio(X_train: pd.DataFrame, X_test: pd.DataFrame) -> List[Dict[str, Any]]:
+        """
+        Detects volatility and distribution collapse between splits.
+        A ratio >> 1 or << 1 indicates the feature scale breaks down in production.
+        """
+        volatility = []
+        numeric_cols = X_train.select_dtypes(include=[np.number]).columns
+        
+        for col in numeric_cols:
+            if col in X_test.columns:
+                var_train = X_train[col].var()
+                var_test = X_test[col].var()
+                
+                if var_train > 1e-5 and var_test > 1e-5:
+                    ratio = max(var_train / var_test, var_test / var_train)
+                    if ratio > 3.0: # Variance changed by more than 3x
+                        severity = "critical" if ratio > 10.0 else "high"
+                        volatility.append({
+                            "column": col,
+                            "variance_ratio": float(ratio),
+                            "severity": severity,
+                            "description": f"Feature variance collapses/explodes across splits (Ratio: {ratio:.1f}x)."
+                        })
+        return sorted(volatility, key=lambda x: x["variance_ratio"], reverse=True)
+
+    @staticmethod
+    def calculate_row_overlap(df1: pd.DataFrame, df2: pd.DataFrame) -> Tuple[int, float]:
+        """Scalable train/test overlap detection using row hashing."""
+        if df1.empty or df2.empty:
+            return 0, 0.0
+        df1_hashes = set(pd.util.hash_pandas_object(df1, index=False))
+        df2_hashes = set(pd.util.hash_pandas_object(df2, index=False))
+        overlap_count = len(df1_hashes.intersection(df2_hashes))
+        overlap_pct = (overlap_count / len(df2_hashes)) * 100 if len(df2_hashes) > 0 else 0.0
+        return overlap_count, float(overlap_pct)
 
 class FeatureNameCleaner:
-    """Transforms sklearn-generated feature names into human-readable format."""
-    
-    def __init__(self):
-        self.patterns = {
-            r'num__': '',  # Remove 'num__' prefix
-            r'cat__': '',  # Remove 'cat__' prefix
-            r'_(.+)_': r' - \1',  # Transform x_value_ to x - value
-            r'_': ' ',  # Replace remaining underscores with spaces
-        }
-    
     def clean_feature_name(self, name: str) -> str:
-        """
-        Clean sklearn-transformed feature names.
-        
-        Examples:
-            'num__tenure' -> 'tenure'
-            'cat__gender_Male' -> 'gender - Male'
-            'cat__state_CA' -> 'state - CA'
-        """
-        if not isinstance(name, str):
-            return str(name)
-        
-        # Step 1: Remove numeric prefixes
-        cleaned = name.replace('num__', '').replace('cat__', '')
-        
-        # Step 2: Handle one-hot encoded categorical features
-        # Pattern: feature_value becomes feature - value
+        if not isinstance(name, str): return str(name)
+        cleaned = name.replace('num__', '').replace('cat__', '').replace('remainder__', '')
         if '_' in cleaned and not any(c.isdigit() and c == cleaned[0] for c in cleaned):
-            parts = cleaned.split('_')
+            parts = cleaned.split('_', 1) 
             if len(parts) == 2:
-                cleaned = f"{parts[0]} - {parts[1]}"
-            elif len(parts) > 2:
-                # Handle cases like postal_code_12345
-                cleaned = f"{parts[0]} - {' '.join(parts[1:])}"
+                cleaned = f"{parts[0].title()} - {parts[1].title()}"
         else:
-            cleaned = cleaned.replace('_', ' ')
-        
-        # Step 3: Capitalize properly
-        cleaned = self._smart_capitalize(cleaned)
-        
+            cleaned = cleaned.replace('_', ' ').title()
         return cleaned
-    
-    def _smart_capitalize(self, text: str) -> str:
-        """Capitalize in a readable way while preserving codes."""
-        parts = text.split(' - ')
-        result = []
-        
-        for part in parts:
-            # If it looks like a code (all caps or short), keep it
-            if len(part) <= 3 and part.isupper():
-                result.append(part)
-            # If it's numeric, keep it
-            elif part.isdigit():
-                result.append(part)
-            # Otherwise capitalize normally
-            else:
-                result.append(part.title())
-        
-        return ' - '.join(result)
-    
-    def batch_clean(self, feature_names: List[str]) -> Dict[str, str]:
-        """Clean multiple feature names at once."""
-        return {name: self.clean_feature_name(name) for name in feature_names}
-
-
-class CorrelationAnalyzer:
-    """Analyzes feature correlations and high-cardinality patterns."""
-    
-    def __init__(self, threshold: float = 0.85):
-        self.threshold = threshold
-    
-    def compute_correlation_matrix(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Compute correlation matrix for numeric features."""
-        numeric_df = df.select_dtypes(include=[np.number])
-        return numeric_df.corr().abs()
-    
-    def find_high_correlations(self, corr_matrix: pd.DataFrame) -> List[Tuple[str, str, float]]:
-        """Find feature pairs with correlation above threshold."""
-        high_corr = []
-        
-        for i in range(len(corr_matrix.columns)):
-            for j in range(i + 1, len(corr_matrix.columns)):
-                corr_val = corr_matrix.iloc[i, j]
-                if corr_val > self.threshold:
-                    high_corr.append((
-                        corr_matrix.columns[i],
-                        corr_matrix.columns[j],
-                        float(corr_val)
-                    ))
-        
-        return sorted(high_corr, key=lambda x: x[2], reverse=True)
-    
-    def identify_high_cardinality_features(self, df: pd.DataFrame, 
-                                          threshold: int = 50) -> Dict[str, int]:
-        """Identify categorical features with many unique values."""
-        high_cardinality = {}
-        
-        categorical = df.select_dtypes(include=['object', 'category'])
-        
-        for col in categorical.columns:
-            unique_count = df[col].nunique()
-            if unique_count > threshold:
-                high_cardinality[col] = unique_count
-        
-        return dict(sorted(high_cardinality.items(), 
-                          key=lambda x: x[1], reverse=True))
-    
-    def compute_feature_redundancy(self, df: pd.DataFrame) -> Dict[str, float]:
-        """
-        Compute redundancy score for each feature.
-        Redundancy = how much information it shares with other features.
-        """
-        numeric_df = df.select_dtypes(include=[np.number])
-        corr_matrix = numeric_df.corr().abs()
-        
-        redundancy_scores = {}
-        
-        for col in corr_matrix.columns:
-            # Average absolute correlation with all other features
-            correlations = corr_matrix[col].drop(col)
-            redundancy_scores[col] = float(correlations.mean())
-        
-        return dict(sorted(redundancy_scores.items(), 
-                          key=lambda x: x[1], reverse=True))
-
-
-class FeatureImportanceAnalyzer:
-    """Analyzes feature importance with statistical context."""
-    
-    @staticmethod
-    def compute_relative_importance(importance_dict: Dict[str, float]) -> Dict[str, float]:
-        """Compute relative importance as percentage of total."""
-        if not importance_dict:
-            return {}
-        
-        total = sum(importance_dict.values())
-        if total == 0:
-            return importance_dict
-        
-        return {name: (imp / total) * 100 for name, imp in importance_dict.items()}
-    
-    @staticmethod
-    def compute_cumulative_importance(importance_dict: Dict[str, float], 
-                                     threshold: float = 0.95) -> Tuple[int, float]:
-        """
-        Find how many features are needed to explain threshold% of variance.
-        Returns (num_features, cumulative_importance)
-        """
-        sorted_imp = sorted(importance_dict.values(), reverse=True)
-        
-        if not sorted_imp:
-            return 0, 0.0
-        
-        total = sum(sorted_imp)
-        if total == 0:
-            return 0, 0.0
-        
-        cumsum = 0
-        for idx, imp in enumerate(sorted_imp, 1):
-            cumsum += imp
-            if cumsum / total >= threshold:
-                return idx, cumsum / total
-        
-        return len(sorted_imp), 1.0
-    
-    @staticmethod
-    def identify_important_features(importance_dict: Dict[str, float],
-                                   n_top: int = 10) -> Dict[str, float]:
-        """Get top N important features."""
-        return dict(sorted(importance_dict.items(), 
-                          key=lambda x: x[1], reverse=True)[:n_top])
-    
-    @staticmethod
-    def compute_feature_variance(importance_dict: Dict[str, float]) -> float:
-        """Compute variance in feature importance (higher = more selective)."""
-        if len(importance_dict) < 2:
-            return 0.0
-        
-        values = list(importance_dict.values())
-        mean = np.mean(values)
-        variance = np.mean([(x - mean) ** 2 for x in values])
-        
-        return float(np.sqrt(variance))
-
-
-class FeatureGroupAnalyzer:
-    """Groups features by type and transformation for insight."""
-    
-    def __init__(self, cleaner: FeatureNameCleaner = None):
-        self.cleaner = cleaner or FeatureNameCleaner()
-    
-    def group_by_source(self, feature_names: List[str]) -> Dict[str, List[str]]:
-        """Group features by their original source (numeric vs categorical)."""
-        groups = {'numeric': [], 'categorical': []}
-        
-        for name in feature_names:
-            if name.startswith('num__'):
-                groups['numeric'].append(self.cleaner.clean_feature_name(name))
-            elif name.startswith('cat__'):
-                groups['categorical'].append(self.cleaner.clean_feature_name(name))
-            else:
-                # Assume numeric if no prefix
-                groups['numeric'].append(self.cleaner.clean_feature_name(name))
-        
-        return groups
-    
-    def group_by_importance_tier(self, importance_dict: Dict[str, float],
-                                 tiers: List[float] = None) -> Dict[str, List[Tuple[str, float]]]:
-        """
-        Group features by importance percentile tiers.
-        
-        Args:
-            importance_dict: Feature importance scores
-            tiers: Percentile boundaries, default [0.5, 0.8, 1.0]
-        """
-        if tiers is None:
-            tiers = [0.5, 0.8, 1.0]
-        
-        # Compute percentiles
-        sorted_values = sorted(importance_dict.values(), reverse=True)
-        tier_names = ['Top Tier', 'Mid Tier', 'Low Tier']
-        
-        groups = {name: [] for name in tier_names}
-        
-        total = sum(sorted_values)
-        cumsum = 0
-        current_tier = 0
-        tier_thresholds = [t * total for t in tiers]
-        
-        for feature, importance in sorted(importance_dict.items(), 
-                                         key=lambda x: x[1], reverse=True):
-            cumsum += importance
-            
-            # Find which tier this feature belongs to
-            while current_tier < len(tier_thresholds) - 1 and cumsum > tier_thresholds[current_tier]:
-                current_tier += 1
-            
-            tier_name = tier_names[min(current_tier, len(tier_names) - 1)]
-            groups[tier_name].append((self.cleaner.clean_feature_name(feature), importance))
-        
-        return {k: v for k, v in groups.items() if v}  # Remove empty groups

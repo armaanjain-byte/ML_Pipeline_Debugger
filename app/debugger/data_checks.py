@@ -10,38 +10,82 @@ logger = logging.getLogger(__name__)
 class DataChecks:
     """
     Comprehensive data validation engine.
-    Performs statistical diagnostics on raw training data to identify 
+    Performs deep statistical diagnostics on raw training data to identify 
     architectural flaws before model training.
     """
     
     def run_all_checks(self, df: pd.DataFrame, target_column: str, task_type: str = "classification") -> Dict[str, Any]:
-        """Executes the full suite of data diagnostics."""
-        # We consolidate outlier detection into one method for efficiency
-        outlier_results = self.check_all_outliers(df, target_column)
+        """Executes the full suite of data diagnostics efficiently."""
+        
+        # Cache numeric/categorical split to prevent redundant selection operations
+        numeric_df = df.select_dtypes(include=[np.number])
+        cat_df = df.select_dtypes(exclude=[np.number])
+        
+        missing_values = self.check_missing_values(df)
+        constant_features = self.check_constant_features(df)
+        near_constant = self.check_near_constant_features(df)
+        high_cardinality = self.check_high_cardinality(cat_df)
+        skewed_features = self.check_skewness(numeric_df, target_column)
+        
+        outlier_results = self.check_all_outliers(numeric_df, target_column)
         
         return {
-            "missing_values": self.check_missing_values(df),
-            "constant_features": self.check_constant_features(df),
+            "missing_values": missing_values,
+            "constant_features": constant_features,
+            "near_constant_features": near_constant,
+            "high_cardinality": high_cardinality,
+            "skewed_features": skewed_features,
             "duplicates": self.check_duplicates(df),
             "class_imbalance": self.check_class_imbalance(df, target_column, task_type),
-            "high_correlation": self.check_high_correlation(df),
-            "target_leakage": self.check_target_leakage(df, target_column),
+            "high_correlation": self.check_high_correlation(numeric_df),
+            "target_leakage": self.check_target_leakage(numeric_df, target_column),
             "outliers": outlier_results,
             "data_types": self.check_data_types(df),
-            "issues": self._summarize_issues(df, target_column, task_type, outlier_results)
+            "issues": self._summarize_issues(
+                df=df, target_column=target_column, task_type=task_type,
+                missing_values=missing_values, constant_features=constant_features,
+                near_constant=near_constant, high_cardinality=high_cardinality,
+                skewed_features=skewed_features, outlier_results=outlier_results
+            )
         }
     
     def check_missing_values(self, df: pd.DataFrame) -> Dict[str, float]:
-        """Identifies columns with null values and their percentage."""
         missing_pct = (df.isnull().sum() / len(df) * 100).to_dict()
         return {k: v for k, v in missing_pct.items() if v > 0}
     
     def check_constant_features(self, df: pd.DataFrame) -> List[str]:
-        """Detects features with zero variance (only one unique value)."""
         return [col for col in df.columns if df[col].nunique() <= 1]
+
+    def check_near_constant_features(self, df: pd.DataFrame) -> Dict[str, float]:
+        """Flags features where the most frequent value is overwhelmingly dominant (>99%)."""
+        near_constants = {}
+        for col in df.columns:
+            if df[col].nunique() > 1:
+                top_freq = df[col].value_counts(normalize=True).iloc[0]
+                if top_freq > 0.99:
+                    near_constants[col] = float(top_freq)
+        return near_constants
+
+    def check_high_cardinality(self, cat_df: pd.DataFrame) -> Dict[str, int]:
+        """Identifies categorical columns with excessive unique values."""
+        high_card = {}
+        for col in cat_df.columns:
+            nunique = cat_df[col].nunique()
+            if nunique > 100:  # Bound based on config heuristics
+                high_card[col] = nunique
+        return high_card
+
+    def check_skewness(self, numeric_df: pd.DataFrame, target_column: str) -> Dict[str, float]:
+        """Detects highly skewed numerical distributions requiring transformation."""
+        skewed = {}
+        for col in numeric_df.columns:
+            if col != target_column:
+                skew_val = numeric_df[col].skew()
+                if abs(skew_val) > 2.0:
+                    skewed[col] = float(skew_val)
+        return skewed
     
     def check_duplicates(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """Identifies exact row duplicates in the dataset."""
         num_duplicates = int(df.duplicated().sum())
         return {
             "total_duplicates": num_duplicates,
@@ -50,7 +94,6 @@ class DataChecks:
         }
     
     def check_class_imbalance(self, df: pd.DataFrame, target_column: str, task_type: str) -> Dict[str, Any]:
-        """Checks for skewed class distributions in classification tasks."""
         if target_column not in df.columns or task_type == "regression":
             return {}
         
@@ -66,9 +109,7 @@ class DataChecks:
             "num_classes": len(value_counts)
         }
     
-    def check_high_correlation(self, df: pd.DataFrame, threshold: float = 0.9) -> List[tuple]:
-        """Detects multicollinearity between independent features."""
-        numeric_df = df.select_dtypes(include=[np.number])
+    def check_high_correlation(self, numeric_df: pd.DataFrame, threshold: float = 0.9) -> List[tuple]:
         if numeric_df.shape[1] < 2:
             return []
         
@@ -85,14 +126,10 @@ class DataChecks:
                     ))
         return high_corr
 
-    def check_target_leakage(self, df: pd.DataFrame, target_column: str) -> List[Dict[str, Any]]:
-        """Scans for features that correlate too highly with the target."""
+    def check_target_leakage(self, numeric_df: pd.DataFrame, target_column: str) -> List[Dict[str, Any]]:
         threshold = DiagnosticConfig.LEAKAGE_THRESHOLD
         leakage_warnings = []
-        if target_column not in df.columns:
-            return leakage_warnings
-            
-        numeric_df = df.select_dtypes(include=[np.number])
+        
         if target_column in numeric_df.columns:
             correlations = numeric_df.corr()[target_column].abs()
             for col, corr in correlations.items():
@@ -103,133 +140,129 @@ class DataChecks:
                     })
         return leakage_warnings
 
-    def check_all_outliers(self, df: pd.DataFrame, target_column: str) -> Dict[str, Any]:
-        """Single pass to detect both univariate (IQR) and multivariate (Isolation Forest) outliers."""
-        numeric_df = df.select_dtypes(include=[np.number]).dropna()
+    def check_all_outliers(self, numeric_df: pd.DataFrame, target_column: str) -> Dict[str, Any]:
+        numeric_df_clean = numeric_df.dropna()
         results = {"univariate": {}, "multivariate": {"count": 0, "percentage": 0.0, "indices": []}}
         
-        if numeric_df.empty:
+        if numeric_df_clean.empty:
             return results
 
-        # 1. Univariate (IQR Method) - Column by column
-        for col in numeric_df.columns:
-            if col == target_column or numeric_df[col].nunique() <= 2:
+        # Univariate (IQR)
+        for col in numeric_df_clean.columns:
+            if col == target_column or numeric_df_clean[col].nunique() <= 2:
                 continue
-            q1, q3 = numeric_df[col].quantile([0.25, 0.75])
+            q1, q3 = numeric_df_clean[col].quantile([0.25, 0.75])
             iqr = q3 - q1
-            count = ((numeric_df[col] < (q1 - 1.5 * iqr)) | (numeric_df[col] > (q3 + 1.5 * iqr))).sum()
-            if count > 0:
-                results["univariate"][col] = int(count)
+            if iqr > 0:
+                count = ((numeric_df_clean[col] < (q1 - 1.5 * iqr)) | (numeric_df_clean[col] > (q3 + 1.5 * iqr))).sum()
+                if count > 0:
+                    results["univariate"][col] = int(count)
 
-        # 2. Multivariate (Isolation Forest) - Deep statistical anomalies
-        if len(numeric_df) >= 50:
-            iso = IsolationForest(contamination="auto", random_state=42)
-            preds = iso.fit_predict(numeric_df)
-            outlier_indices = numeric_df.index[preds == -1].tolist()
+        # Multivariate (Isolation Forest) - Bounded safely to prevent false 50%+ anomaly flags
+        if len(numeric_df_clean) >= 50:
+            # Cap maximum contamination strictly at 5%, scaling down for smaller datasets
+            contamination = min(0.05, max(0.01, 100.0 / len(numeric_df_clean)))
+            iso = IsolationForest(contamination=contamination, random_state=42)
+            preds = iso.fit_predict(numeric_df_clean)
+            outlier_indices = numeric_df_clean.index[preds == -1].tolist()
             results["multivariate"] = {
                 "count": len(outlier_indices),
-                "percentage": float((len(outlier_indices) / len(numeric_df)) * 100),
+                "percentage": float((len(outlier_indices) / len(numeric_df_clean)) * 100),
                 "indices": outlier_indices[:10]
             }
         
         return results
 
     def check_data_types(self, df: pd.DataFrame) -> Dict[str, str]:
-        """Returns the schema mapping for all columns."""
         return df.dtypes.astype(str).to_dict()
     
-    def _summarize_issues(self, df: pd.DataFrame, target_column: str, task_type: str, outlier_results: Dict) -> List[Dict[str, Any]]:
-        """Translates raw check results into a structured list of actionable issues with context."""
+    def _summarize_issues(self, df: pd.DataFrame, target_column: str, task_type: str, 
+                          missing_values: Dict, constant_features: List, near_constant: Dict,
+                          high_cardinality: Dict, skewed_features: Dict, outlier_results: Dict) -> List[Dict[str, Any]]:
+        
         issues = []
         
-        # 1. Missing Values - Prioritize by percentage
-        for col, pct in sorted(self.check_missing_values(df).items(), key=lambda x: x[1], reverse=True):
+        for col, pct in sorted(missing_values.items(), key=lambda x: x[1], reverse=True):
             severity = "critical" if pct > 50 else "high" if pct > 30 else "medium" if pct > 10 else "low"
             issues.append({
-                "type": "missing_values",
-                "column": col,
-                "severity": severity,
-                "description": f"{pct:.1f}% missing values"
+                "type": "missing_values", "column": col, "severity": severity,
+                "description": f"{pct:.1f}% missing values detected."
             })
         
-        # 2. Constant Features - High impact
-        for col in self.check_constant_features(df):
+        for col in constant_features:
             issues.append({
-                "type": "constant_feature",
-                "column": col,
-                "severity": "high",
-                "description": "Feature has only one unique value"
+                "type": "constant_feature", "column": col, "severity": "high",
+                "description": "Feature contains only one unique value (zero variance)."
             })
-        
-        # 3. Duplicate Rows
+            
+        for col, freq in near_constant.items():
+            issues.append({
+                "type": "near_constant_feature", "column": col, "severity": "medium",
+                "description": f"Highly imbalanced feature ({freq*100:.1f}% dominant value)."
+            })
+            
+        for col, count in high_cardinality.items():
+            issues.append({
+                "type": "high_cardinality", "column": col, "severity": "high",
+                "description": f"Categorical feature with excessive cardinality ({count} unique values)."
+            })
+            
+        for col, skew in skewed_features.items():
+            issues.append({
+                "type": "high_skewness", "column": col, "severity": "medium",
+                "description": f"High numerical skewness detected (Skew: {skew:.2f})."
+            })
+
         dup_info = self.check_duplicates(df)
         if dup_info.get("has_duplicates"):
             dup_pct = dup_info['duplicate_percentage']
             severity = "high" if dup_pct > 5 else "medium"
             issues.append({
-                "type": "duplicate_rows",
-                "column": "dataset_wide",
-                "severity": severity,
-                "description": f"{dup_info['total_duplicates']} duplicate rows ({dup_pct:.1f}%)"
+                "type": "duplicate_rows", "column": "dataset_wide", "severity": severity,
+                "description": f"{dup_info['total_duplicates']} exact duplicate rows ({dup_pct:.1f}%)."
             })
         
-        # 4. Class Imbalance - Critical for classification
         imbalance = self.check_class_imbalance(df, target_column, task_type)
         if imbalance and imbalance.get("is_imbalanced"):
             minority_pct = imbalance['minority_class_percentage']
-            if minority_pct < 5:
-                severity = "critical"
-            elif minority_pct < 10:
-                severity = "high"
-            else:
-                severity = "medium"
+            severity = "critical" if minority_pct < 5 else "high" if minority_pct < 10 else "medium"
             issues.append({
-                "type": "class_imbalance",
-                "column": target_column,
-                "severity": severity,
-                "description": f"Minority class: {minority_pct:.1f}%"
+                "type": "class_imbalance", "column": target_column, "severity": severity,
+                "description": f"Severe target imbalance (Minority class: {minority_pct:.1f}%)."
             })
         
-        # 5. High Correlation - Ranked by strength
-        for col1, col2, corr in sorted(self.check_high_correlation(df), key=lambda x: x[2], reverse=True):
+        # High Correlation
+        corr_data = self.check_high_correlation(df.select_dtypes(include=[np.number]))
+        for col1, col2, corr in sorted(corr_data, key=lambda x: x[2], reverse=True):
             severity = "high" if corr > 0.95 else "medium"
             issues.append({
-                "type": "high_correlation",
-                "column": f"{col1} ↔ {col2}",
-                "severity": severity,
-                "description": f"Correlation: {corr:.3f}"
+                "type": "high_correlation", "column": f"{col1} ↔ {col2}", "severity": severity,
+                "description": f"Strong multicollinearity detected (Correlation: {corr:.3f})."
             })
 
-        # 6. Target Leakage - CRITICAL
-        for leak in self.check_target_leakage(df, target_column):
+        # Target Leakage
+        for leak in self.check_target_leakage(df.select_dtypes(include=[np.number]), target_column):
             issues.append({
-                "type": "target_leakage",
-                "column": leak["column"],
-                "severity": "critical",
-                "description": f"Suspected leakage: correlation with target is {leak['correlation']:.3f}"
+                "type": "target_leakage", "column": leak["column"], "severity": "critical",
+                "description": f"Suspected target leakage. Correlation with target is abnormally high ({leak['correlation']:.3f})."
             })
 
-        # 7. Multivariate Outliers
+        # Outliers
         multi = outlier_results["multivariate"]
         if multi["count"] > 0:
             pct = multi["percentage"]
-            severity = "critical" if pct > 10 else "high" if pct > 5 else "medium"
+            severity = "high" if pct > 3 else "medium"  # Since we capped contamination at 5%
             issues.append({
-                "type": "multivariate_outliers",
-                "column": "dataset_wide",
-                "severity": severity,
-                "description": f"Detected {multi['count']} multivariate outliers ({pct:.1f}%)"
+                "type": "multivariate_outliers", "column": "dataset_wide", "severity": severity,
+                "description": f"Detected {multi['count']} deep multivariate anomalies ({pct:.1f}%)."
             })
         
-        # 8. Univariate Outliers - By impact
-        for col, count in sorted(outlier_results["univariate"].items(), key=lambda x: x[1], reverse=True):
+        for col, count in sorted(outlier_results["univariate"].items(), key=lambda x: x[1], reverse=True)[:5]:
             pct = (count / len(df)) * 100
             severity = "high" if pct > 10 else "medium" if pct > 5 else "low"
             issues.append({
-                "type": "outliers",
-                "column": col,
-                "severity": severity,
-                "description": f"{count} outliers ({pct:.1f}%)"
+                "type": "outliers", "column": col, "severity": severity,
+                "description": f"{count} univariate outliers detected ({pct:.1f}%)."
             })
         
         return issues
