@@ -1,5 +1,3 @@
-# FILE: app/debugger/recommendations.py
-
 from __future__ import annotations
 
 from collections import defaultdict
@@ -43,13 +41,17 @@ class RecommendationEngine:
 
     def __init__(
         self,
-        df: pd.DataFrame,
-        target: str,
-        task: str,
+        df: pd.DataFrame = None,
+        target: str = None,
+        task: str = None,
     ):
         self.df = df
         self.target = target
-        self.task = task.lower().strip()
+        self.task = (
+            task.lower().strip()
+            if isinstance(task, str)
+            else None
+        )
 
     # ==========================================================
     # Public API
@@ -57,28 +59,88 @@ class RecommendationEngine:
 
     def generate(
         self,
-        checks_output: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        checks_output,
+    ):
         """
         Stable recommendation generation entrypoint.
+
+        Backward compatibility:
+        - accepts raw issue lists
+        - accepts checks-output dictionaries
         """
 
-        issues = checks_output.get("issues", [])
+        # ======================================================
+        # Legacy compatibility:
+        # generate([...issues...])
+        # ======================================================
 
-        normalized_issues = self._normalize_issues(issues)
+        if isinstance(
+            checks_output,
+            list,
+        ):
 
-        grouped_issues = self._group_issues(normalized_issues)
+            normalized_issues = (
+                self._normalize_issues(
+                    checks_output
+                )
+            )
 
-        recommendations = self._build_recommendations(
-            grouped_issues
+            grouped_issues = (
+                self._group_issues(
+                    normalized_issues
+                )
+            )
+
+            recommendations = (
+                self._build_recommendations(
+                    grouped_issues
+                )
+            )
+
+            recommendations = (
+                self._sort_recommendations(
+                    recommendations
+                )
+            )
+
+            return recommendations
+
+        # ======================================================
+        # Current architecture:
+        # generate({"issues": [...]})
+        # ======================================================
+
+        issues = checks_output.get(
+            "issues",
+            [],
         )
 
-        recommendations = self._sort_recommendations(
-            recommendations
+        normalized_issues = (
+            self._normalize_issues(
+                issues
+            )
         )
 
-        critical_issues = self._count_critical_issues(
+        grouped_issues = self._group_issues(
             normalized_issues
+        )
+
+        recommendations = (
+            self._build_recommendations(
+                grouped_issues
+            )
+        )
+
+        recommendations = (
+            self._sort_recommendations(
+                recommendations
+            )
+        )
+
+        critical_issues = (
+            self._count_critical_issues(
+                normalized_issues
+            )
         )
 
         return {
@@ -107,15 +169,31 @@ class RecommendationEngine:
         normalized = []
 
         for raw_issue in issues:
+
             normalized_issue = {
-                "type": self._normalize_issue_type(
-                    raw_issue.get("type", "unknown_issue")
+                "type": (
+                    self._normalize_issue_type(
+                        raw_issue.get(
+                            "type",
+                            "unknown_issue",
+                        )
+                    )
                 ),
-                "column": self._normalize_column_name(
-                    raw_issue.get("column", "unknown")
+                "column": (
+                    self._normalize_column_name(
+                        raw_issue.get(
+                            "column",
+                            "unknown",
+                        )
+                    )
                 ),
-                "severity": self._normalize_severity(
-                    raw_issue.get("severity", "medium")
+                "severity": (
+                    self._normalize_severity(
+                        raw_issue.get(
+                            "severity",
+                            "medium",
+                        )
+                    )
                 ),
                 "description": str(
                     raw_issue.get(
@@ -125,7 +203,9 @@ class RecommendationEngine:
                 ),
             }
 
-            normalized.append(normalized_issue)
+            normalized.append(
+                normalized_issue
+            )
 
         return normalized
 
@@ -137,7 +217,11 @@ class RecommendationEngine:
         Converts issue types into deterministic identifiers.
         """
 
-        issue_type = str(issue_type).strip().lower()
+        issue_type = (
+            str(issue_type)
+            .strip()
+            .lower()
+        )
 
         replacements = {
             " ": "_",
@@ -145,8 +229,17 @@ class RecommendationEngine:
             "/": "_",
         }
 
-        for source, target in replacements.items():
-            issue_type = issue_type.replace(source, target)
+        for (
+            source,
+            target,
+        ) in replacements.items():
+
+            issue_type = (
+                issue_type.replace(
+                    source,
+                    target,
+                )
+            )
 
         return issue_type
 
@@ -171,7 +264,11 @@ class RecommendationEngine:
         Stable severity normalization.
         """
 
-        normalized = str(severity).strip().lower()
+        normalized = (
+            str(severity)
+            .strip()
+            .lower()
+        )
 
         severity_aliases = {
             "warn": "medium",
@@ -185,7 +282,10 @@ class RecommendationEngine:
             normalized,
         )
 
-        if normalized not in self.VALID_SEVERITIES:
+        if (
+            normalized
+            not in self.VALID_SEVERITIES
+        ):
             return "medium"
 
         return normalized
@@ -205,7 +305,9 @@ class RecommendationEngine:
         grouped = defaultdict(list)
 
         for issue in issues:
-            grouped[issue["type"]].append(issue)
+            grouped[
+                issue["type"]
+            ].append(issue)
 
         return dict(grouped)
 
@@ -215,7 +317,10 @@ class RecommendationEngine:
 
     def _build_recommendations(
         self,
-        grouped_issues: Dict[str, List[Dict[str, Any]]],
+        grouped_issues: Dict[
+            str,
+            List[Dict[str, Any]],
+        ],
     ) -> List[Dict[str, Any]]:
         """
         Deterministic recommendation generation.
@@ -223,14 +328,22 @@ class RecommendationEngine:
 
         recommendations = []
 
-        for issue_type, issue_group in grouped_issues.items():
-            recommendation = self._build_single_recommendation(
-                issue_type=issue_type,
-                issue_group=issue_group,
+        for (
+            issue_type,
+            issue_group,
+        ) in grouped_issues.items():
+
+            recommendation = (
+                self._build_single_recommendation(
+                    issue_type=issue_type,
+                    issue_group=issue_group,
+                )
             )
 
             if recommendation:
-                recommendations.append(recommendation)
+                recommendations.append(
+                    recommendation
+                )
 
         return recommendations
 
@@ -243,8 +356,10 @@ class RecommendationEngine:
         Stable recommendation construction.
         """
 
-        severity = self._resolve_group_severity(
-            issue_group
+        severity = (
+            self._resolve_group_severity(
+                issue_group
+            )
         )
 
         affected_columns = sorted(
@@ -254,18 +369,28 @@ class RecommendationEngine:
             }
         )
 
-        recommendation_text = self._generate_recommendation_text(
-            issue_type=issue_type,
-            severity=severity,
-            affected_columns=affected_columns,
+        recommendation_text = (
+            self._generate_recommendation_text(
+                issue_type=issue_type,
+                severity=severity,
+                affected_columns=affected_columns,
+            )
         )
 
         return {
-            "recommendation_id": issue_type,
+            "recommendation_id": (
+                f"rec_{issue_type}"
+            ),
             "severity": severity,
-            "affected_columns": affected_columns,
-            "issue_count": len(issue_group),
-            "recommendation": recommendation_text,
+            "affected_columns": (
+                affected_columns
+            ),
+            "issue_count": len(
+                issue_group
+            ),
+            "recommendation": (
+                recommendation_text
+            ),
             "issues": issue_group,
         }
 
@@ -281,9 +406,6 @@ class RecommendationEngine:
     ) -> str:
         """
         Stable recommendation language layer.
-
-        IMPORTANT:
-        Preserves analytical meaning while normalizing wording.
         """
 
         column_preview = ", ".join(
@@ -333,12 +455,15 @@ class RecommendationEngine:
             "and model robustness."
         )
 
-        message = recommendation_templates.get(
-            issue_type,
-            fallback_message,
+        message = (
+            recommendation_templates.get(
+                issue_type,
+                fallback_message,
+            )
         )
 
         if severity == "critical":
+
             message = (
                 "Immediate attention recommended. "
                 + message
@@ -364,10 +489,15 @@ class RecommendationEngine:
         resolved_severity = "info"
 
         for issue in issue_group:
-            current = issue["severity"]
+
+            current = issue[
+                "severity"
+            ]
 
             if (
-                self.SEVERITY_PRIORITY[current]
+                self.SEVERITY_PRIORITY[
+                    current
+                ]
                 > self.SEVERITY_PRIORITY[
                     resolved_severity
                 ]
@@ -387,7 +517,8 @@ class RecommendationEngine:
         return sum(
             1
             for issue in issues
-            if issue["severity"] == "critical"
+            if issue["severity"]
+            == "critical"
         )
 
     # ==========================================================
@@ -396,7 +527,9 @@ class RecommendationEngine:
 
     def _sort_recommendations(
         self,
-        recommendations: List[Dict[str, Any]],
+        recommendations: List[
+            Dict[str, Any]
+        ],
     ) -> List[Dict[str, Any]]:
         """
         Deterministic recommendation ordering.
@@ -406,9 +539,15 @@ class RecommendationEngine:
             recommendations,
             key=lambda recommendation: (
                 -self.SEVERITY_PRIORITY[
-                    recommendation["severity"]
+                    recommendation[
+                        "severity"
+                    ]
                 ],
-                -recommendation["issue_count"],
-                recommendation["recommendation_id"],
+                -recommendation[
+                    "issue_count"
+                ],
+                recommendation[
+                    "recommendation_id"
+                ],
             ),
         )

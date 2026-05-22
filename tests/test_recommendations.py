@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.pipeline.recommendation_engine import (RecommendationEngine)
+from app.debugger.recommendations import (RecommendationEngine)
 
 # ============================================================================
 # FIXTURES
