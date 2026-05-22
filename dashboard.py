@@ -1,8 +1,6 @@
 """
-ML Pipeline Debugger Dashboard
-A comprehensive MLOps observability and diagnostics platform.
-Provides real-time pipeline diagnostics, feature importance visualization, 
-and engineering recommendations for ML reliability.
+ML Pipeline Debugger Dashboard - Stabilized Edition
+Professional MLOps observability and diagnostics platform.
 """
 
 import streamlit as st
@@ -10,65 +8,91 @@ import pandas as pd
 import numpy as np
 import json
 import os
+import tempfile
 from datetime import datetime
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Optional
+
 import plotly.graph_objects as go
 import plotly.express as px
-from sklearn.preprocessing import StandardScaler
 
 from app.pipeline.pipeline_runner import PipelineRunner
-from app.utils.feature_utils import FeatureNameCleaner, CorrelationAnalyzer
+from app.utils.feature_utils import FeatureNameCleaner
 from app.utils.observability import ReliabilityScorer, PipelineObserver
-from app.utils.visualization import (
-    format_metric_card, 
-    create_severity_chart,
-    create_feature_importance_chart,
-    create_correlation_heatmap,
-    create_reliability_gauge
-)
 
 # Page Configuration
 st.set_page_config(
     page_title="ML Pipeline Debugger",
-    page_icon="🔍",
+    page_icon="▢",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better styling
+# Professional minimalist styling
 st.markdown("""
 <style>
-    [data-testid="stSidebar"] {
-        background-color: #f8f9fa;
+    /* Reduce excessive whitespace */
+    .main { padding-top: 1rem; }
+    .block-container { padding: 1.5rem 2rem; }
+    
+    /* Professional color scheme */
+    :root {
+        --primary: #2c3e50;
+        --secondary: #34495e;
+        --border: #bdc3c7;
+        --bg-light: #ecf0f1;
+        --critical: #c0392b;
+        --high: #e67e22;
+        --medium: #f39c12;
+        --low: #27ae60;
     }
+    
+    /* Section styling - cleaner typography */
+    h1, h2, h3 { margin-top: 1.5rem; margin-bottom: 0.75rem; color: #2c3e50; }
+    h1 { font-size: 1.8rem; font-weight: 600; }
+    h2 { font-size: 1.4rem; font-weight: 600; border-bottom: 1px solid #bdc3c7; padding-bottom: 0.5rem; }
+    h3 { font-size: 1.1rem; font-weight: 600; }
+    
+    /* Compact metric cards */
     .metric-card {
-        background-color: #ffffff;
-        border-left: 4px solid #3498db;
-        padding: 20px;
-        border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        background: white;
+        border: 1px solid #bdc3c7;
+        padding: 1rem;
+        border-radius: 4px;
+        margin-bottom: 0.5rem;
     }
-    .section-title {
-        color: #1f77b4;
-        font-size: 24px;
-        font-weight: bold;
-        margin-top: 30px;
-        margin-bottom: 20px;
-        border-bottom: 2px solid #e0e0e0;
-        padding-bottom: 10px;
+    
+    /* Severity indicators - no emojis, subtle */
+    .severity-critical { color: #c0392b; font-weight: 600; }
+    .severity-high { color: #e67e22; font-weight: 600; }
+    .severity-medium { color: #f39c12; font-weight: 600; }
+    .severity-low { color: #27ae60; font-weight: 600; }
+    
+    /* Reduce dividers */
+    hr { margin: 1rem 0; border: 1px solid #ecf0f1; }
+    
+    /* Tighter sidebar */
+    [data-testid="stSidebar"] {
+        width: 280px;
+        background: #f8f9fa;
     }
-    .success {
-        color: #27ae60;
-        font-weight: bold;
+    
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+        gap: 0.5rem;
     }
-    .warning {
-        color: #f39c12;
-        font-weight: bold;
+    
+    /* Compact form elements */
+    .stTextInput > div > div > input,
+    .stSelectbox > div > div > select,
+    .stNumberInput > div > div > input {
+        padding: 0.5rem;
+        font-size: 0.9rem;
     }
-    .critical {
-        color: #e74c3c;
-        font-weight: bold;
-    }
+    
+    /* Table styling */
+    .dataframe { font-size: 0.9rem; }
+    
+    /* Reduce Plotly margins */
+    .plotly-graph-div { margin: 0; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -85,31 +109,28 @@ class DashboardState:
         return st.session_state
 
 
-def render_sidebar():
-    """Render navigation sidebar with pipeline controls."""
-    st.sidebar.markdown("# 🔍 ML Pipeline Debugger")
-    st.sidebar.markdown("---")
+def render_sidebar() -> Dict[str, Any]:
+    """Render compact sidebar with pipeline controls."""
+    st.sidebar.markdown("### ML Pipeline Debugger")
     
     with st.sidebar:
-        st.markdown("### 📊 Pipeline Configuration")
+        st.markdown("Configuration")
         
-        uploaded_file = st.file_uploader("📁 Upload CSV Dataset", type=['csv'])
-        target_column = st.text_input("🎯 Target Column", value="", placeholder="e.g., churn, price")
+        uploaded_file = st.file_uploader("CSV Dataset", type=['csv'], key="csv_upload")
+        target_column = st.text_input("Target Column", value="", placeholder="e.g., churn")
         
         col1, col2 = st.columns(2)
         with col1:
-            task_type = st.selectbox("📈 Task Type", ["classification", "regression"])
+            task_type = st.selectbox("Task", ["classification", "regression"], key="task")
         with col2:
-            dev_mode = st.checkbox("⚙️ Dev Mode (Fast)", value=False, 
-                                   help="Sample 5000 rows for rapid testing")
+            dev_mode = st.checkbox("Dev Mode", value=False, help="5K rows")
         
         st.markdown("---")
-        st.markdown("### 🚀 Actions")
-        
-        run_button = st.button("▶️ Run Pipeline", use_container_width=True, type="primary")
+        run_button = st.button("Run Analysis", use_container_width=True, type="primary")
         
         if st.session_state.run_timestamp:
-            st.caption(f"Last run: {st.session_state.run_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+            ts = st.session_state.run_timestamp.strftime('%H:%M:%S')
+            st.caption(f"Last run: {ts}")
         
         return {
             'uploaded_file': uploaded_file,
@@ -120,404 +141,369 @@ def render_sidebar():
         }
 
 
-def render_header(metadata: Dict[str, Any]):
-    """Render dashboard header with key dataset metrics."""
+def render_header(metadata: Dict[str, Any]) -> None:
+    """Render compact header metrics."""
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("📊 Total Rows", f"{metadata['num_rows']:,}")
+        st.metric("Rows", f"{metadata['num_rows']:,}")
     with col2:
-        st.metric("🔢 Features", metadata['num_columns'])
+        st.metric("Features", metadata['num_columns'])
     with col3:
         memory_mb = metadata['memory_usage_mb']
-        st.metric("💾 Memory", f"{memory_mb:.2f} MB")
+        st.metric("Memory", f"{memory_mb:.1f} MB")
     with col4:
         numeric_cols = sum(1 for dt in metadata['dtypes'].values() if 'int' in dt or 'float' in dt)
-        st.metric("🔢 Numeric", numeric_cols)
+        st.metric("Numeric", numeric_cols)
 
 
-def render_execution_flow(observer: 'PipelineObserver'):
-    """Render pipeline execution flow visualization."""
-    st.markdown('<h3 class="section-title">🔄 Pipeline Execution Flow</h3>', unsafe_allow_html=True)
+def render_reliability_score(scorer: ReliabilityScorer, checks: Dict[str, Any]) -> None:
+    """Render reliability score with clear breakdown."""
+    st.markdown("## Reliability Assessment")
     
-    steps = observer.get_execution_steps()
+    overall_score = scorer.compute_overall_score(checks)
+    component_scores = scorer.compute_component_scores(checks)
     
-    cols = st.columns(len(steps))
-    for idx, (col, step) in enumerate(zip(cols, steps)):
-        with col:
-            status_icon = "✅" if step['status'] == 'completed' else "⏳" if step['status'] == 'running' else "❌"
-            status_color = "#27ae60" if step['status'] == 'completed' else "#f39c12" if step['status'] == 'running' else "#e74c3c"
-            
-            st.markdown(f"""
-            <div style="text-align: center; padding: 15px; border-radius: 8px; border-left: 4px solid {status_color}; background-color: #f8f9fa;">
-                <div style="font-size: 24px; margin-bottom: 10px;">{status_icon}</div>
-                <div style="font-weight: bold; font-size: 12px; margin-bottom: 5px;">{step['name']}</div>
-                <div style="font-size: 10px; color: #666;">{step['duration_ms']}ms</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-
-def render_reliability_section(scorer: 'ReliabilityScorer', checks_output: Dict[str, Any]):
-    """Render reliability scoring and health overview."""
-    st.markdown('<h3 class="section-title">🛡️ Pipeline Reliability & Health</h3>', unsafe_allow_html=True)
+    # Main score with interpretation
+    status_text = scorer.get_health_status(overall_score)
     
-    # Compute reliability score
-    overall_score = scorer.compute_overall_score(checks_output)
-    component_scores = scorer.compute_component_scores(checks_output)
-    
-    col1, col2, col3, col4 = st.columns(4)
-    
+    col1, col2 = st.columns([2, 1])
     with col1:
-        st.markdown("""
-        <div class="metric-card">
-            <div style="font-size: 14px; color: #666; margin-bottom: 10px;">Overall Reliability</div>
-            <div style="font-size: 36px; font-weight: bold; color: #3498db;">{:.1f}%</div>
-        </div>
-        """.format(overall_score), unsafe_allow_html=True)
+        fig = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=overall_score,
+            domain={'x': [0, 1], 'y': [0, 1]},
+            gauge={
+                'axis': {'range': [0, 100]},
+                'bar': {'color': scorer.get_score_color(overall_score)},
+                'steps': [
+                    {'range': [0, 30], 'color': '#ffebee'},
+                    {'range': [30, 50], 'color': '#fff3e0'},
+                    {'range': [50, 70], 'color': '#fffde7'},
+                    {'range': [70, 85], 'color': '#e8f5e9'},
+                    {'range': [85, 100], 'color': '#c8e6c9'}
+                ]
+            }
+        ))
+        fig.update_layout(height=300, margin=dict(l=0, r=0, t=0, b=0))
+        st.plotly_chart(fig, use_container_width=True)
     
     with col2:
-        data_quality = component_scores.get('data_quality', 0)
-        st.markdown(f"""
-        <div class="metric-card">
-            <div style="font-size: 14px; color: #666; margin-bottom: 10px;">Data Quality</div>
-            <div style="font-size: 36px; font-weight: bold; color: {'#27ae60' if data_quality > 70 else '#f39c12' if data_quality > 50 else '#e74c3c'};">{data_quality:.1f}%</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        leakage_risk = component_scores.get('leakage_risk', 0)
-        st.markdown(f"""
-        <div class="metric-card">
-            <div style="font-size: 14px; color: #666; margin-bottom: 10px;">Leakage Risk</div>
-            <div style="font-size: 36px; font-weight: bold; color: {'#27ae60' if leakage_risk < 20 else '#f39c12' if leakage_risk < 50 else '#e74c3c'};">{leakage_risk:.1f}%</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col4:
-        balance_health = component_scores.get('balance_health', 0)
-        st.markdown(f"""
-        <div class="metric-card">
-            <div style="font-size: 14px; color: #666; margin-bottom: 10px;">Class Balance</div>
-            <div style="font-size: 36px; font-weight: bold; color: {'#27ae60' if balance_health > 70 else '#f39c12' if balance_health > 50 else '#e74c3c'};">{balance_health:.1f}%</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"**Score:** {overall_score:.1f}")
+        st.markdown(f"**Status:** {status_text}")
+        st.markdown("**Components:**")
+        for component, weight in [
+            ('Data Quality', 0.25),
+            ('Leakage Risk', 0.30),
+            ('Class Balance', 0.20),
+            ('Outlier Health', 0.15),
+            ('Missing Data', 0.10)
+        ]:
+            score = component_scores.get(component.lower().replace(' ', '_'), 0)
+            st.text(f"{component:15} {score:5.1f}%")
 
 
-def render_issues_section(checks_output: Dict[str, Any]):
-    """Render data quality issues with severity classification."""
-    st.markdown('<h3 class="section-title">⚠️ Data Quality Issues</h3>', unsafe_allow_html=True)
+def render_issues_section(checks: Dict[str, Any]) -> None:
+    """Render data quality issues in compact format."""
+    st.markdown("## Data Quality Issues")
     
-    issues = checks_output.get('issues', [])
+    issues = checks.get('issues', [])
     
     if not issues:
-        st.success("✅ No data quality issues detected!")
+        st.info("No data quality issues detected.")
         return
     
-    # Categorize issues by severity
-    critical_issues = [i for i in issues if i.get('severity') == 'critical']
-    high_issues = [i for i in issues if i.get('severity') == 'high']
-    medium_issues = [i for i in issues if i.get('severity') == 'medium']
-    low_issues = [i for i in issues if i.get('severity') == 'low']
+    # Severity summary
+    critical = sum(1 for i in issues if i.get('severity') == 'critical')
+    high = sum(1 for i in issues if i.get('severity') == 'high')
+    medium = sum(1 for i in issues if i.get('severity') == 'medium')
+    low = sum(1 for i in issues if i.get('severity') == 'low')
     
-    # Severity distribution chart
-    col1, col2 = st.columns([1, 2])
-    
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
-        severity_data = {
-            '🔴 Critical': len(critical_issues),
-            '🟠 High': len(high_issues),
-            '🟡 Medium': len(medium_issues),
-            '🟢 Low': len(low_issues)
-        }
-        severity_data = {k: v for k, v in severity_data.items() if v > 0}
-        
-        if severity_data:
-            fig = go.Figure(data=[go.Pie(
-                labels=list(severity_data.keys()),
-                values=list(severity_data.values()),
-                hole=0.3,
-                marker=dict(colors=['#e74c3c', '#f39c12', '#f1c40f', '#27ae60'])
-            )])
-            fig.update_layout(
-                height=300,
-                margin=dict(l=0, r=0, t=0, b=0),
-                font=dict(size=12)
-            )
-            st.plotly_chart(fig, use_container_width=True)
-    
+        st.metric("Critical", critical)
     with col2:
-        # Severity trend
-        severity_counts = [len(critical_issues), len(high_issues), len(medium_issues), len(low_issues)]
-        fig = go.Figure(data=[go.Bar(
-            x=['Critical', 'High', 'Medium', 'Low'],
-            y=severity_counts,
-            marker=dict(color=['#e74c3c', '#f39c12', '#f1c40f', '#27ae60']),
-            text=severity_counts,
-            textposition='auto'
-        )])
-        fig.update_layout(
-            title="Issue Distribution by Severity",
-            xaxis_title="Severity Level",
-            yaxis_title="Count",
-            height=300,
-            showlegend=False,
-            margin=dict(l=0, r=0, t=30, b=0)
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        st.metric("High", high)
+    with col3:
+        st.metric("Medium", medium)
+    with col4:
+        st.metric("Low", low)
     
-    # Detailed issue cards
-    st.markdown("#### Detailed Issues")
+    st.markdown("---")
     
-    if critical_issues:
-        st.markdown("**🔴 Critical Issues**")
-        for issue in critical_issues:
-            col1, col2, col3 = st.columns([2, 2, 1])
+    # Issues table
+    if critical > 0 or high > 0:
+        st.markdown("### Actionable Issues")
+        critical_high = [i for i in issues if i.get('severity') in ['critical', 'high']]
+        
+        for issue in critical_high:
+            severity = issue.get('severity', 'medium').upper()
+            col1, col2, col3 = st.columns([2, 1.5, 1])
+            
             with col1:
-                st.write(f"**{issue['type'].replace('_', ' ').title()}**")
+                st.markdown(f"**{issue['type'].replace('_', ' ').title()}**")
                 st.caption(issue['description'])
             with col2:
                 st.caption(f"Column: `{issue['column']}`")
             with col3:
-                st.write("🔴 Critical")
+                if severity == 'CRITICAL':
+                    st.markdown('<span class="severity-critical">CRITICAL</span>', unsafe_allow_html=True)
+                else:
+                    st.markdown('<span class="severity-high">HIGH</span>', unsafe_allow_html=True)
+            
+            st.markdown("---")
     
-    if high_issues:
-        st.markdown("**🟠 High Priority Issues**")
-        for issue in high_issues:
-            col1, col2, col3 = st.columns([2, 2, 1])
-            with col1:
-                st.write(f"**{issue['type'].replace('_', ' ').title()}**")
-                st.caption(issue['description'])
-            with col2:
+    # Medium/Low issues collapsible
+    other_issues = [i for i in issues if i.get('severity') not in ['critical', 'high']]
+    if other_issues:
+        with st.expander(f"Other Issues ({len(other_issues)})"):
+            for issue in other_issues:
+                severity = issue.get('severity', 'low').upper()
+                st.markdown(f"**{issue['type'].replace('_', ' ')}** - {issue['description']}")
                 st.caption(f"Column: `{issue['column']}`")
-            with col3:
-                st.write("🟠 High")
-    
-    if medium_issues and not critical_issues and not high_issues:
-        with st.expander(f"Show {len(medium_issues)} Medium Issues"):
-            for issue in medium_issues:
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    st.write(f"**{issue['type'].replace('_', ' ').title()}**: {issue['description']}")
-                    st.caption(f"Column: `{issue['column']}`")
-                with col2:
-                    st.write("🟡 Medium")
+                st.markdown("---")
 
 
-def render_feature_importance(feature_importance: Dict[str, float], 
-                              checks_output: Dict[str, Any],
-                              X_train_columns: List[str] = None):
-    """Render feature importance with correlation heatmap."""
-    st.markdown('<h3 class="section-title">🎯 Feature Importance & Correlation</h3>', unsafe_allow_html=True)
+def render_feature_importance(importance_dict: Dict[str, float]) -> None:
+    """Render top features with clean design."""
+    st.markdown("## Feature Importance")
     
-    if not feature_importance:
-        st.info("⚠️ Feature importance not available for this model type.")
+    if not importance_dict:
+        st.info("Feature importance not available for this model type.")
         return
     
-    # Clean feature names
     cleaner = FeatureNameCleaner()
+    top_n = 15
+    top_features = dict(sorted(importance_dict.items(), key=lambda x: x[1], reverse=True)[:top_n])
     
-    # Top features
-    col1, col2 = st.columns([1.5, 1])
-    
-    with col1:
-        st.markdown("#### Top 15 Most Important Features")
-        
-        top_n = 15
-        top_features = dict(sorted(feature_importance.items(), key=lambda x: x[1], reverse=True)[:top_n])
-        
-        # Clean names for display
-        display_names = [cleaner.clean_feature_name(name) for name in top_features.keys()]
-        importances = list(top_features.values())
-        
-        fig = go.Figure(data=[go.Bar(
-            y=display_names,
-            x=importances,
-            orientation='h',
-            marker=dict(
-                color=importances,
-                colorscale='Viridis',
-                showscale=False
-            ),
-            text=[f'{imp:.4f}' for imp in importances],
-            textposition='auto'
-        )])
-        fig.update_layout(
-            xaxis_title="Importance Score",
-            yaxis_title="Feature Name",
-            height=400,
-            margin=dict(l=200, r=20, t=20, b=20),
-            showlegend=False
-        )
-        fig.update_yaxes(autorange="reversed")
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        st.markdown("#### Feature Statistics")
-        
-        # Top 5 summary
-        top_5 = dict(sorted(feature_importance.items(), key=lambda x: x[1], reverse=True)[:5])
-        
-        for idx, (feat, imp) in enumerate(top_5.items(), 1):
-            clean_name = cleaner.clean_feature_name(feat)
-            st.metric(f"#{idx}", clean_name, f"{imp:.4f}")
-
-
-def render_model_performance(model_metrics: Dict[str, float], task_type: str):
-    """Render model performance metrics."""
-    st.markdown('<h3 class="section-title">📈 Model Performance</h3>', unsafe_allow_html=True)
-    
-    if not model_metrics:
-        st.info("⚠️ Model performance metrics not available.")
+    if not top_features:
+        st.info("No features to display.")
         return
     
-    # Organize metrics by type
-    holdout_metrics = {k: v for k, v in model_metrics.items() if not k.startswith('cv_')}
-    cv_metrics = {k: v for k, v in model_metrics.items() if k.startswith('cv_')}
+    display_names = [cleaner.clean_feature_name(name) for name in top_features.keys()]
+    importances = list(top_features.values())
+    
+    fig = go.Figure(data=[go.Bar(
+        y=display_names,
+        x=importances,
+        orientation='h',
+        marker=dict(color=importances, colorscale='Blues', showscale=False),
+        text=[f'{imp:.4f}' for imp in importances],
+        textposition='outside',
+        hovertemplate='<b>%{y}</b><br>Score: %{x:.6f}<extra></extra>'
+    )])
+    
+    fig.update_layout(
+        height=300,
+        margin=dict(l=200, r=100, t=20, b=20),
+        xaxis_title="Importance",
+        yaxis_title=None,
+        showlegend=False
+    )
+    fig.update_yaxes(autorange="reversed")
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Top 5 summary
+    st.markdown("**Top Features:**")
+    for idx, (feat, imp) in enumerate(list(top_features.items())[:5], 1):
+        clean_name = cleaner.clean_feature_name(feat)
+        st.text(f"{idx}. {clean_name:40} {imp:.6f}")
+
+
+def render_model_performance(metrics: Dict[str, float], task_type: str) -> None:
+    """Render model metrics in compact table."""
+    st.markdown("## Model Performance")
+    
+    if not metrics:
+        st.info("Model metrics not available.")
+        return
+    
+    # Separate holdout and cross-validation metrics
+    holdout = {k: v for k, v in metrics.items() if not k.startswith('cv_')}
+    cv = {k: v for k, v in metrics.items() if k.startswith('cv_')}
     
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("#### Holdout Set Performance")
-        if task_type == "classification":
-            metric_order = ['accuracy', 'precision', 'recall', 'f1']
-        else:
-            metric_order = ['r2', 'rmse', 'mae']
-        
-        for metric in metric_order:
-            if metric in holdout_metrics:
-                value = holdout_metrics[metric]
-                # Format percentage metrics
-                if metric == 'accuracy':
-                    st.metric(metric.replace('_', ' ').title(), f"{value*100:.2f}%")
-                elif metric in ['r2']:
-                    st.metric(metric.upper(), f"{value:.4f}")
-                else:
-                    st.metric(metric.upper(), f"{value:.4f}")
+        st.markdown("**Holdout Set**")
+        for metric, value in sorted(holdout.items()):
+            st.text(f"{metric:20} {value:.6f}")
     
     with col2:
-        st.markdown("#### Cross-Validation Performance")
-        for metric, value in cv_metrics.items():
-            if 'mean' in metric:
-                clean_name = metric.replace('cv_mean_', '').replace('_', ' ').upper()
-                st.metric(f"{clean_name} (Mean)", f"{value:.4f}")
+        st.markdown("**Cross-Validation**")
+        for metric, value in sorted(cv.items()):
+            st.text(f"{metric:20} {value:.6f}")
 
 
-def render_recommendations(recommendations: Dict[str, Any]):
-    """Render actionable recommendations."""
-    st.markdown('<h3 class="section-title">💡 Engineering Recommendations</h3>', unsafe_allow_html=True)
+def _validate_recommendations(recommendations: Any) -> Dict[str, Any]:
+    """
+    Validate and standardize recommendation structure.
+    Handles mixed-type returns and edge cases.
     
+    Returns canonical schema:
+    {
+        "recommendations": [...],
+        "total_issues": int,
+        "critical_issues": int,
+        "severity_breakdown": {...}
+    }
+    """
+    # Handle None/empty
+    if not recommendations:
+        return {
+            "recommendations": [],
+            "total_issues": 0,
+            "critical_issues": 0,
+            "severity_breakdown": {}
+        }
+    
+    # If it's a list, assume it came from somewhere unexpected
+    if isinstance(recommendations, list):
+        return {
+            "recommendations": recommendations,
+            "total_issues": len(recommendations),
+            "critical_issues": sum(1 for r in recommendations if r.get('severity') == 'critical'),
+            "severity_breakdown": {}
+        }
+    
+    # If it's a dict, validate structure
+    if isinstance(recommendations, dict):
+        # Ensure recommendations key exists and is a list
+        recs = recommendations.get('recommendations', [])
+        if not isinstance(recs, list):
+            recs = []
+        
+        return {
+            "recommendations": recs,
+            "total_issues": recommendations.get('total_issues', len(recs)),
+            "critical_issues": recommendations.get('critical_issues', sum(1 for r in recs if r.get('severity') == 'critical')),
+            "severity_breakdown": recommendations.get('severity_breakdown', {})
+        }
+    
+    # Fallback for unexpected types
+    return {
+        "recommendations": [],
+        "total_issues": 0,
+        "critical_issues": 0,
+        "severity_breakdown": {}
+    }
+
+
+def render_recommendations(recommendations_input: Any) -> None:
+    """Render actionable recommendations with robust validation."""
+    st.markdown("## Recommendations")
+    
+    # Validate and standardize input
+    recommendations = _validate_recommendations(recommendations_input)
     recs = recommendations.get('recommendations', [])
     total_issues = recommendations.get('total_issues', 0)
     critical_issues = recommendations.get('critical_issues', 0)
     
-    # Summary
+    # Summary metrics
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Total Issues", total_issues)
     with col2:
-        st.metric("Critical", critical_issues, delta="action needed" if critical_issues > 0 else "healthy")
+        status = "Critical" if critical_issues > 0 else "Healthy"
+        st.metric("Critical", critical_issues)
     with col3:
-        st.metric("Addressed", len(recs))
+        st.metric("Recommendations", len(recs))
     
     if not recs:
-        st.success("✅ No recommendations needed at this time.")
+        st.info("No recommendations at this time.")
         return
     
     st.markdown("---")
     
-    # Group by issue type for better organization
-    grouped_recs = {}
+    # Group by type for organization
+    grouped = {}
     for rec in recs:
         issue_type = rec.get('type', 'unknown').replace('_', ' ').title()
-        if issue_type not in grouped_recs:
-            grouped_recs[issue_type] = []
-        grouped_recs[issue_type].append(rec)
+        if issue_type not in grouped:
+            grouped[issue_type] = []
+        grouped[issue_type].append(rec)
     
-    # Display recommendations
-    for issue_type, issue_recs in grouped_recs.items():
-        with st.expander(f"**{issue_type}** ({len(issue_recs)} issue{'s' if len(issue_recs) != 1 else ''})"):
-            for rec in issue_recs:
-                severity = rec.get('severity', 'medium')
-                severity_icon = {'critical': '🔴', 'high': '🟠', 'medium': '🟡', 'low': '🟢'}.get(severity, '⚪')
+    # Render grouped recommendations
+    for issue_type, type_recs in grouped.items():
+        with st.expander(f"{issue_type} ({len(type_recs)})"):
+            for rec in type_recs:
+                # Severity indicator
+                severity = rec.get('severity', 'medium').upper()
+                severity_class = f'severity-{rec.get("severity", "medium")}'
                 
-                st.markdown(f"**{severity_icon} {rec['description']}**")
-                st.caption(f"Column: `{rec['column']}`")
+                # Header with severity
+                st.markdown(f"**{rec.get('title', issue_type)}**")
+                st.markdown(f'<span class="{severity_class}">{severity}</span>', unsafe_allow_html=True)
+                st.caption(rec.get('description', ''))
                 
-                if 'recommendations' in rec:
-                    st.write("**Actions to take:**")
-                    for action in rec['recommendations']:
-                        st.write(f"• {action}")
+                # Actions
+                actions = rec.get('recommendations', rec.get('actions', []))
+                if actions:
+                    st.markdown("**Actions:**")
+                    for action in actions:
+                        st.text(f"• {action}")
                 
-                if 'rationale' in rec:
-                    with st.expander("📖 Why this matters"):
-                        st.write(rec['rationale'])
+                # Rationale
+                rationale = rec.get('rationale', '')
+                if rationale:
+                    with st.expander("Rationale"):
+                        st.text(rationale)
                 
                 st.markdown("---")
 
 
-def render_data_sample(df: pd.DataFrame):
-    """Render data sample."""
-    st.markdown('<h3 class="section-title">📊 Data Sample</h3>', unsafe_allow_html=True)
+def render_data_sample(df: pd.DataFrame) -> None:
+    """Render data sample and statistics."""
+    st.markdown("## Data Sample")
     
     col1, col2 = st.columns(2)
     with col1:
-        n_rows = st.slider("Rows to display", 5, 50, 10)
+        n_rows = st.slider("Rows", 5, 50, 10, key="sample_slider")
     with col2:
-        show_stats = st.checkbox("Show statistics", value=False)
+        show_stats = st.checkbox("Show statistics", key="show_stats")
     
-    st.dataframe(df.head(n_rows), use_container_width=True)
+    st.dataframe(df.head(n_rows), use_container_width=True, height=300)
     
     if show_stats:
-        st.markdown("#### Data Statistics")
+        st.markdown("**Descriptive Statistics**")
         st.dataframe(df.describe(), use_container_width=True)
 
 
 def main():
     """Main dashboard application."""
     state = DashboardState.get_session_state()
-    
-    # Render sidebar
     controls = render_sidebar()
     
-    # Main content
+    # Check for required inputs
     if not controls['uploaded_file'] or not controls['target_column']:
         st.markdown("""
-        # 🔍 ML Pipeline Debugger
+        # ML Pipeline Debugger
         
-        ## Welcome to the ML Reliability Platform
+        Upload a CSV dataset to analyze data quality, detect issues, and get actionable recommendations.
         
-        This tool provides comprehensive diagnostics and observability for ML pipelines.
+        **Features:**
+        • Comprehensive data quality diagnostics
+        • Reliability scoring (0-100 scale)
+        • Feature importance analysis
+        • Model performance evaluation
+        • Actionable recommendations
         
-        ### Getting Started:
-        1. **Upload your CSV dataset** using the sidebar
-        2. **Specify the target column** you want to predict
-        3. **Select task type** (classification or regression)
-        4. **Click "Run Pipeline"** to analyze your data
-        
-        ### What this tool does:
-        - 🔍 **Data Quality Analysis**: Detect missing values, outliers, duplicates
-        - ⚠️ **Risk Detection**: Identify leakage, multicollinearity, class imbalance
-        - 📊 **Feature Analysis**: Compute importance and correlation patterns
-        - 🎯 **Model Evaluation**: Track holdout and cross-validation metrics
-        - 💡 **Actionable Insights**: Get engineering recommendations
-        - 🛡️ **Reliability Scoring**: Assess pipeline health and readiness
-        
-        ---
-        
-        **Ready to analyze your ML pipeline? Upload a dataset to begin!**
+        **Getting started:** Use the sidebar to upload your data and configure analysis.
         """)
         return
     
     # Save uploaded file temporarily
     if controls['uploaded_file']:
-        import tempfile
         with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp:
             tmp.write(controls['uploaded_file'].getbuffer())
             temp_file_path = tmp.name
+    else:
+        return
     
-    # Run pipeline if button clicked
+    # Run pipeline if requested
     if controls['run_button']:
-        with st.spinner("🚀 Running ML pipeline diagnostics..."):
+        with st.spinner("Running analysis..."):
             try:
                 runner = PipelineRunner(
                     file_path=temp_file_path,
@@ -526,19 +512,12 @@ def main():
                     dev_mode=controls['dev_mode']
                 )
                 
-                observer = PipelineObserver()
-                observer.record_step("data_loading", "Data Loading", 150)
-                observer.record_step("data_validation", "Data Validation", 200)
-                observer.record_step("preprocessing", "Preprocessing", 300)
-                observer.record_step("model_training", "Model Training", 2000)
-                observer.record_step("evaluation", "Evaluation", 500)
-                
                 result = runner.run()
                 state.pipeline_result = result
                 state.run_timestamp = datetime.now()
                 
             except Exception as e:
-                st.error(f"❌ Pipeline failed: {str(e)}")
+                st.error(f"Pipeline failed: {str(e)}")
                 return
     
     # Display results if available
@@ -546,81 +525,62 @@ def main():
         result = state.pipeline_result
         
         if result['status'] == 'failure':
-            st.error(f"❌ Pipeline Error: {result['error']}")
+            st.error(f"Analysis failed: {result['error']}")
             return
         
-        # Header with metadata
+        # Render dashboard sections
         render_header(result['metadata'])
         st.markdown("---")
         
-        # Execution flow
-        observer = PipelineObserver()
-        observer.record_step("data_loading", "Data Loading", 150)
-        observer.record_step("diagnostics", "Diagnostics", 200)
-        observer.record_step("training", "Model Training", 1500)
-        observer.record_step("evaluation", "Evaluation", 300)
-        render_execution_flow(observer)
-        st.markdown("---")
-        
-        # Reliability section
         scorer = ReliabilityScorer()
-        render_reliability_section(scorer, result['checks'])
+        render_reliability_score(scorer, result.get('checks', {}))
         st.markdown("---")
         
-        # Issues section
-        render_issues_section(result['checks'])
+        render_issues_section(result.get('checks', {}))
         st.markdown("---")
         
-        # Feature importance
-        render_feature_importance(
-            result.get('feature_importance', {}),
-            result.get('checks', {}),
-            result['metadata'].get('columns', [])
-        )
+        render_feature_importance(result.get('feature_importance', {}))
         st.markdown("---")
         
-        # Model performance
-        render_model_performance(
-            result.get('model_metrics', {}),
-            controls['task_type']
-        )
+        render_model_performance(result.get('model_metrics', {}), controls['task_type'])
         st.markdown("---")
         
-        # Recommendations
-        render_recommendations(result.get('recommendations', {}))
+        # Robust recommendations rendering
+        render_recommendations(result.get('recommendations'))
         st.markdown("---")
         
         # Data sample
         df = pd.read_csv(temp_file_path)
         render_data_sample(df)
         
-        # Export results
-        st.markdown('<h3 class="section-title">📥 Export Results</h3>', unsafe_allow_html=True)
-        
+        # Export section
+        st.markdown("## Export Results")
         col1, col2 = st.columns(2)
         
         with col1:
-            json_result = json.dumps(result, indent=2, default=str)
+            json_str = json.dumps(result, indent=2, default=str)
             st.download_button(
-                label="📄 Download JSON Report",
-                data=json_result,
-                file_name=f"pipeline_report_{state.run_timestamp.strftime('%Y%m%d_%H%M%S')}.json",
-                mime="application/json"
+                "Download JSON Report",
+                data=json_str,
+                file_name=f"pipeline_{state.run_timestamp.strftime('%Y%m%d_%H%M%S')}.json",
+                mime="application/json",
+                use_container_width=True
             )
         
         with col2:
-            csv_issues = pd.DataFrame(result['checks'].get('issues', []))
-            if not csv_issues.empty:
-                csv_data = csv_issues.to_csv(index=False)
+            issues_df = pd.DataFrame(result.get('checks', {}).get('issues', []))
+            if not issues_df.empty:
+                csv_str = issues_df.to_csv(index=False)
                 st.download_button(
-                    label="📊 Download Issues CSV",
-                    data=csv_data,
-                    file_name=f"pipeline_issues_{state.run_timestamp.strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
+                    "Download Issues CSV",
+                    data=csv_str,
+                    file_name=f"issues_{state.run_timestamp.strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
                 )
     
-    # Cleanup
-    if controls['uploaded_file'] and os.path.exists(temp_file_path):
+    # Cleanup temp file
+    if os.path.exists(temp_file_path):
         try:
             os.unlink(temp_file_path)
         except:
