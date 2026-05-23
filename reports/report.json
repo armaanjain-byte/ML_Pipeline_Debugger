@@ -215,15 +215,15 @@
         }
     ],
     "telemetry": {
-        "data_loading_seconds": 0.12137651443481445,
-        "split_seconds": 0.01666259765625,
-        "integrity_checks_seconds": 1.5639879703521729,
-        "diagnostics_seconds": 0.3810257911682129,
-        "recommendations_seconds": 0.00019240379333496094,
-        "training_seconds": 2.2466704845428467,
-        "evaluation_seconds": 9.67559027671814,
-        "importance_seconds": 0.13480758666992188,
-        "total_pipeline_seconds": 14.14142894744873
+        "data_loading_seconds": 0.13497424125671387,
+        "split_seconds": 0.0184018611907959,
+        "integrity_checks_seconds": 1.4938373565673828,
+        "diagnostics_seconds": 0.3802943229675293,
+        "recommendations_seconds": 8.273124694824219e-05,
+        "training_seconds": 2.3286845684051514,
+        "evaluation_seconds": 10.163821935653687,
+        "importance_seconds": 0.1346724033355713,
+        "total_pipeline_seconds": 14.655420541763306
     },
     "issues": [
         {
