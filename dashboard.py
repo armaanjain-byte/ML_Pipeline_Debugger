@@ -39,10 +39,9 @@ st.set_page_config(
 st.markdown(
     """
 <style>
-    * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
+    /* Forces Streamlit dropdowns to float above custom markdown */
+    div[data-baseweb="popover"] {
+        z-index: 999999 !important;
     }
 
     html, body, [data-testid="stAppViewContainer"] {
