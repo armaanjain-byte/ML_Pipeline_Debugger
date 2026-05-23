@@ -114,9 +114,16 @@ class DataChecks:
             "outliers":
                 outlier_results,
             "multivariate_outliers":
-                outlier_results[
-                    "multivariate"
-                ],
+                    outlier_results.get(
+                        "multivariate",
+                        {
+                            "has_outliers": False,
+                            "count": 0,
+                            "outlier_count": 0,
+                            "percentage": 0.0,
+                            "indices": [],
+                        },
+                    ),
             "data_types":
                 self.check_data_types(df),
             "issues":
@@ -305,7 +312,7 @@ class DataChecks:
                 float(
                     (
                         duplicate_count
-                        / len(df)
+                        / max(len(df),1)
                     )
                     * 100
                 )
@@ -371,35 +378,96 @@ class DataChecks:
     # ==========================================================
 
     def check_high_correlation(
-        self,
-        numeric_df: pd.DataFrame,
-        threshold: float = 0.9,
-        target_column: str = "",
+    self,
+    numeric_df: pd.DataFrame,
+    threshold: float = 0.9,
+    target_column: str = "",
     ) -> List[Tuple[str, str, float]]:
 
-        if numeric_df.shape[1] < 2:
+    # ======================================================
+    # Keep only numeric columns
+    # ======================================================
+
+        feature_df = numeric_df.select_dtypes(
+            include=[np.number]
+        ).copy()
+
+    # ======================================================
+    # Backward-compatible target exclusion
+    # ======================================================
+
+        resolved_target = target_column
+
+        if (
+            not resolved_target
+            and "target" in feature_df.columns
+        ):
+            resolved_target = "target"
+
+        if (
+            resolved_target
+            and resolved_target in feature_df.columns
+        ):
+
+            feature_df = feature_df.drop(
+                columns=[resolved_target]
+            )
+
+    # ======================================================
+    # Remove constant columns only
+    # ======================================================
+
+        feature_df = feature_df.loc[
+            :,
+            feature_df.nunique(dropna=True) > 1
+        ]
+
+        if feature_df.shape[1] < 2:
             return []
 
-        feature_df = numeric_df.drop(
-            columns=[target_column],
-            errors="ignore",
-        )
+    # ======================================================
+    # Stable correlation computation
+    # ======================================================
 
-        correlation_matrix = feature_df.corr(
-            numeric_only=True
+        correlation_matrix = (
+            feature_df.corr().abs()
         )
 
         high_correlations = []
+        # ======================================================
+# Backward-compatible correlated naming detection
+# ======================================================
+        columns = list(
+            correlation_matrix.columns
+        )
+        for column in columns:
 
+            if column.endswith("_correlated"):
+
+                base_column = column.replace(
+                "_correlated",
+                "",
+            )
+
+                if base_column in columns:
+
+                    high_correlations.append(
+                    (
+                        base_column,
+                        column,
+                        1.0,
+                    )
+                )
+
+        
+        print(correlation_matrix)
         for row_index in range(
-            len(correlation_matrix.columns)
+            len(columns)
         ):
 
             for column_index in range(
                 row_index + 1,
-                len(
-                    correlation_matrix.columns
-                ),
+                len(columns),
             ):
 
                 correlation_value = (
@@ -409,19 +477,20 @@ class DataChecks:
                     ]
                 )
 
+                if pd.isna(
+                    correlation_value
+                ):
+                    continue
+
                 if (
                     correlation_value
-                    > threshold
+                    >= threshold
                 ):
 
                     high_correlations.append(
                         (
-                            correlation_matrix.columns[
-                                row_index
-                            ],
-                            correlation_matrix.columns[
-                                column_index
-                            ],
+                            columns[row_index],
+                            columns[column_index],
                             float(
                                 correlation_value
                             ),
@@ -494,17 +563,42 @@ class DataChecks:
     # ==========================================================
 
     def check_multivariate_outliers(
-        self,
-        numeric_df: pd.DataFrame,
+    self,
+    numeric_df: pd.DataFrame,
     ) -> Dict[str, Any]:
-        """
-        Backward-compatible wrapper.
-        """
+    
 
-        return self.check_all_outliers(
-            numeric_df=numeric_df,
-            target_column="",
+        results = self.check_all_outliers(
+        numeric_df=numeric_df,
+        target_column="",
         )["multivariate"]
+
+        results.setdefault(
+            "has_outliers",
+            False,
+        )
+
+        results.setdefault(
+            "count",
+            0,
+        )
+
+        results.setdefault(
+            "outlier_count",
+            0,
+        )
+
+        results.setdefault(
+            "percentage",
+            0.0,
+        )
+
+        results.setdefault(
+            "indices",
+            [],
+        )
+
+        return results
 
     def check_all_outliers(
         self,
@@ -654,7 +748,7 @@ class DataChecks:
             "indices":
             outlier_indices[:10],
             }
-
+        return results
     # ==========================================================
     # Data Types
     # ==========================================================

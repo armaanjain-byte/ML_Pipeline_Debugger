@@ -94,8 +94,32 @@ class PipelineRunner:
         """
 
         pipeline_start_time = time.time()
-
+        
+        
         try:
+            observability_flags = []
+            telemetry = {
+                "data_loading_seconds": 0.0,
+                "split_seconds": 0.0,
+                "diagnostics_seconds": 0.0,
+                "training_seconds": 0.0,
+                "evaluation_seconds": 0.0,
+                "total_pipeline_seconds": 0.0,
+            }
+            dataset = {
+                "rows": 0,
+                "columns": 0,
+                "target": self.target_column,
+                "task_type": self.task_type,
+                "overlap_pct": 0.0,
+                "overlap_count": 0,
+            }
+            metrics = {
+                "train": {},
+                "holdout": {},
+                "cv": {},
+                "observability_flags": [],
+                }
             self._log_pipeline_start()
 
             # ==================================================
@@ -295,7 +319,24 @@ class PipelineRunner:
                 holdout_metrics=holdout_metrics,
                 cv_results=cv_results,
             )
+            for metric_section in [
+                train_metrics,
+                holdout_metrics,
+                cv_results,
+            ]:
 
+                for (
+                    metric_name,
+                    metric_value,
+                ) in list(
+                    metric_section.items()
+                ):
+
+                    if metric_value is None:
+
+                        metric_section[
+                        metric_name
+                        ] = 0.0
             metrics_payload = {
                 "train": train_metrics,
                 "holdout": holdout_metrics,
@@ -314,7 +355,7 @@ class PipelineRunner:
             feature_importance_start = time.time()
 
             try:
-                feature_importance = self.model.feature_importance()
+                feature_importance = self.model.feature_importance(list(X_train.columns))
 
             except Exception as error:
                 logger.warning(
@@ -505,7 +546,9 @@ class PipelineRunner:
         """
         Preserves original observability semantics.
         """
-
+        observability_flags = []
+        if not isinstance(observability_flags, list):
+            observability_flags = []
         primary_metric = (
             "f1"
             if self.task_type == "classification"

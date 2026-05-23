@@ -58,12 +58,15 @@ class Model:
             Pipeline
         ] = None
 
-        if self.task_type == "classification":
+        if self.custom_estimator is not None:
+            self.model = self.custom_estimator
+
+        elif self.task_type == "classification":
             self.model = RandomForestClassifier(
-                n_estimators=100,
-                random_state=self.RANDOM_STATE,
-                n_jobs=-1,
-            )
+            n_estimators=100,
+            random_state=self.RANDOM_STATE,
+            n_jobs=-1,
+        )
 
         elif self.task_type == "regression":
             self.model = RandomForestRegressor(
@@ -236,7 +239,7 @@ class Model:
     y_test: pd.Series,
     y_pred: np.ndarray,
     y_pred_proba=None,
-    ) -> Dict[str, float]:
+) -> Dict[str, float]:
         """
         Stable metric evaluation.
         """
@@ -348,23 +351,54 @@ class Model:
 
             importances = (
                 self._extract_importance_values(
-                    estimator
+                    estimator   
                 )
             )
 
             if importances is None:
                 return {}
 
-            transformed_names = list(
-            feature_names
-            )
+            if feature_names is None:
+                raise ValueError(
+                "feature_names cannot be None"
+                )
+            pipeline_preprocessor = None
+            if hasattr(
+                self.model,
+                "named_steps"
+            ):
+
+                pipeline_preprocessor = (
+                    self.model.named_steps.get(
+                        "preprocessor"
+
+                    )
+                )
 
             if (
-                    len(transformed_names)
-                    != len(importances)
+                pipeline_preprocessor is not None
+                and hasattr(
+                        pipeline_preprocessor,
+                        "get_feature_names_out"
+                    )
             ):
-                raise ValueError(
-                "Feature names length does not match importance values."
+
+                transformed_names = list(
+                    pipeline_preprocessor.get_feature_names_out()
+                )       
+
+            else:
+                transformed_names = list(
+                    feature_names
+                )
+
+            if(
+                feature_names is not None
+                and len(feature_names)
+                != len(importances)
+                ):
+                    raise ValueError(
+                    "Feature names length does not match importance values."
             )
 
             normalized_importances = (
@@ -603,34 +637,31 @@ class Model:
                 )
             ),
 
-        "roc_auc": 0.0,
+        "roc_auc": None,
     }
 
             
 
             if y_pred_proba is not None:
 
+            
+
                 try:
 
-                    if len(y_pred_proba.shape) > 1:
-                        positive_scores = (
-                    y_pred_proba[:, 1]
-                    )
-
+                    if hasattr(y_pred_proba, "shape") and len(y_pred_proba.shape) > 1:
+                        positive_scores = y_pred_proba[:, 1]
                     else:
-                        positive_scores = (
-                        y_pred_proba
-                    )
+                        positive_scores = y_pred_proba
 
                     metrics["roc_auc"] = float(
-                        roc_auc_score(
-                        y_test,
-                        positive_scores,
+                    roc_auc_score(
+                    y_test,
+                    positive_scores,
                     )
                     )
 
                 except Exception:
-                    metrics["roc_auc"] = 0.0
+                    metrics["roc_auc"] = None
 
             return metrics
 
@@ -1055,6 +1086,17 @@ class ModelTrainer(Model):
             y_train,
             predictions,
         )
+        metrics = {
+            metric_name: (
+            0.0
+            if metric_value is None
+            else metric_value
+            )
+            for (
+                metric_name,
+                metric_value,
+            ) in metrics.items()
+        }
 
         return {
             "model": self,
@@ -1064,7 +1106,7 @@ class ModelTrainer(Model):
                 "cv": {},
             },
             "feature_importance": (
-                self.model.feature_importance(
+                self.feature_importance(
                 list(X_train.columns)
                 )
             or {}
