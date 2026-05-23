@@ -270,34 +270,17 @@ class DataChecks:
     # ==========================================================
 
     def check_duplicates(
-    self,
-    df: pd.DataFrame,
+        self,
+        df: pd.DataFrame,
     ) -> Dict[str, Any]:
 
-    # ==========================================
-    # Exact row duplicates
-    # ==========================================
+        # ==========================================
+        # Exact row duplicates
+        # ==========================================
 
         duplicate_count = int(
             df.duplicated().sum()
         )
-
-    # ==========================================
-    # Legacy compatibility fallback
-    # ==========================================
-
-        if duplicate_count == 0:
-
-            for column in df.columns:
-
-                repeated_values = int(
-                    df[column]
-                    .duplicated().sum()
-                )
-
-                if repeated_values > 0:
-                    duplicate_count = repeated_values
-                    break
 
         return {
             "total_duplicates":
@@ -307,7 +290,7 @@ class DataChecks:
                 float(
                     (
                         duplicate_count
-                        / max(len(df),1)
+                        / max(len(df), 1)
                     )
                     * 100
                 )
@@ -317,7 +300,6 @@ class DataChecks:
             "has_duplicates":
                 duplicate_count > 0,
         }
-
     # ==========================================================
     # Class Imbalance
     # ==========================================================

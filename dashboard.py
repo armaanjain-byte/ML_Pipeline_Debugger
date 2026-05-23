@@ -2221,155 +2221,73 @@ def render_recommendations_audit(
         # Render Cards
         # =====================================================
 
-        for (
-            idx,
-            recommendation,
-        ) in enumerate(
-            filtered_recommendations,
-            start=1,
-        ):
+        # =====================================================
+        # Render Cards
+        # =====================================================
 
-            severity = (
-                Normalizer.normalize_severity(
-                    recommendation.get(
-                        "severity"
-                    )
-                )
+        for idx, recommendation in enumerate(filtered_recommendations, start=1):
+
+            severity = Normalizer.normalize_severity(recommendation.get("severity"))
+            raw_payload = recommendation.get("recommendation", "No recommendation available.")
+            recommendation_text = _safe_render_content(raw_payload)
+
+            if recommendation_text.strip().startswith("<div") or "recommendation-item" in recommendation_text:
+                recommendation_text = re.sub(r"<[^>]+>", " ", recommendation_text)
+                recommendation_text = re.sub(r"\s+", " ", recommendation_text).strip()
+
+            affected_columns = recommendation.get("affected_columns", [])
+            issues = recommendation.get("issues", [])
+
+            severity_html = f"<span class='severity-{severity}'>{severity.upper()}</span>"
+
+            # Constructing a SINGLE continuous string without any newline (\n) characters.
+            # This completely prevents Streamlit from breaking the HTML block.
+            card_html = (
+                f"<div class='recommendation-item {severity}'>"
+                f"<div style='display:flex;align-items:center;gap:0.8rem;margin-bottom:1rem;'>"
+                f"<div class='recommendation-title'>Recommendation {idx}</div>"
+                f"{severity_html}"
+                f"</div>"
+                f"<div class='recommendation-content'>{recommendation_text}</div>"
             )
-
-            raw_payload = recommendation.get(
-                "recommendation",
-                "No recommendation available.",
-            )
-
-            recommendation_text = _safe_render_content(
-                raw_payload
-            )
-
-            if (
-                recommendation_text.strip().startswith("<div")
-                or "recommendation-item" in recommendation_text
-            ):
-                recommendation_text = re.sub(
-                r"<[^>]+>",
-                " ",
-                recommendation_text,
-                )
-
-                recommendation_text = re.sub(
-                    r"\s+",
-                    " ",
-                    recommendation_text,
-                ).strip()
-
-            affected_columns = (
-                recommendation.get(
-                    "affected_columns",
-                    [],
-                )
-            )
-
-            issues = recommendation.get(
-                "issues",
-                [],
-            )
-
-            severity_html = (
-                f"<span class='severity-{severity}'>"
-                f"{severity.upper()}"
-                f"</span>"
-            )
-
-            card_html = f"""
-            <div class='recommendation-item {severity}'>
-
-                <div style='display:flex;align-items:center;gap:0.8rem;margin-bottom:1rem;'>
-
-                    <div class='recommendation-title'>
-                        Recommendation {idx}
-                    </div>
-
-                    {severity_html}
-
-                </div>
-
-                <div class='recommendation-content'>
-                    {recommendation_text}
-                </div>
-            """
 
             # =================================================
             # Affected Columns
             # =================================================
 
             if affected_columns:
-
                 columns_html = "".join(
                     [
-                        f'''
-                        <span
-                            style="
-                                display:inline-block;
-                                background:#e2e8f0;
-                                color:#0f172a;
-                                padding:0.3rem 0.7rem;
-                                border-radius:999px;
-                                margin-right:0.5rem;
-                                margin-top:0.5rem;
-                                font-size:0.82rem;
-                                font-weight:700;
-                            "
-                        >
-                            {column}
-                        </span>
-                        '''
+                        f"<span style='display:inline-block; background:#e2e8f0; color:#0f172a; padding:0.3rem 0.7rem; border-radius:999px; margin-right:0.5rem; margin-top:0.5rem; font-size:0.82rem; font-weight:700;'>{column}</span>"
                         for column in affected_columns
                     ]
                 )
 
-                card_html += f"""
-                <div class='recommendation-section'>
-
-                    <div class='recommendation-section-title'>
-                        Affected Columns
-                    </div>
-
-                    <div>
-                        {columns_html}
-                    </div>
-
-                </div>
-                """
+                card_html += (
+                    f"<div class='recommendation-section'>"
+                    f"<div class='recommendation-section-title'>Affected Columns</div>"
+                    f"<div>{columns_html}</div>"
+                    f"</div>"
+                )
 
             # =================================================
             # Supporting Issues
             # =================================================
 
             if issues:
+                issues_html = "".join(
+                    [
+                        f"<li style='margin-bottom:0.45rem;'>{issue.get('description', 'Issue detected.')}</li>"
+                        for issue in issues
+                    ]
+                )
 
-                issues_html = ""
-
-                for issue in issues:
-
-                    issues_html += f"""
-                    <li style='margin-bottom:0.45rem;'>
-                        {issue.get("description", "Issue detected.")}
-                    </li>
-                    """
-
-                card_html += f"""
-                <div class='recommendation-section'>
-
-                    <div class='recommendation-section-title'>
-                        Supporting Issues
-                    </div>
-
-                    <ul style='padding-left:1.5rem;margin-top:0.7rem;'>
-                        {issues_html}
-                    </ul>
-
-                </div>
-                """
+                card_html += (
+                    f"<div class='recommendation-section'>"
+                    f"<div class='recommendation-section-title'>Supporting Issues</div>"
+                    f"<ul style='padding-left:1.5rem;margin-top:0.7rem;'>{issues_html}</ul>"
+                    f"</div>"
+                )
 
             card_html += "</div>"
 

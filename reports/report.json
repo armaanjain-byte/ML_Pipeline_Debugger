@@ -215,15 +215,15 @@
         }
     ],
     "telemetry": {
-        "data_loading_seconds": 0.13508868217468262,
-        "split_seconds": 0.018329381942749023,
-        "integrity_checks_seconds": 1.3937511444091797,
-        "diagnostics_seconds": 0.36363768577575684,
-        "recommendations_seconds": 8.845329284667969e-05,
-        "training_seconds": 2.2297356128692627,
-        "evaluation_seconds": 10.005929708480835,
-        "importance_seconds": 0.14739751815795898,
-        "total_pipeline_seconds": 14.294608116149902
+        "data_loading_seconds": 0.12137651443481445,
+        "split_seconds": 0.01666259765625,
+        "integrity_checks_seconds": 1.5639879703521729,
+        "diagnostics_seconds": 0.3810257911682129,
+        "recommendations_seconds": 0.00019240379333496094,
+        "training_seconds": 2.2466704845428467,
+        "evaluation_seconds": 9.67559027671814,
+        "importance_seconds": 0.13480758666992188,
+        "total_pipeline_seconds": 14.14142894744873
     },
     "issues": [
         {
@@ -237,12 +237,6 @@
             "column": "customerID",
             "severity": "high",
             "description": "Categorical feature with excessive cardinality (5634 unique values)."
-        },
-        {
-            "type": "duplicate_rows",
-            "column": "dataset_wide",
-            "severity": "high",
-            "description": "5632 duplicate rows (100.0%)."
         },
         {
             "type": "multivariate_outliers",
@@ -312,23 +306,6 @@
                     "column": "tenure",
                     "severity": "high",
                     "description": "High multicollinearity detected (VIF: 6.46)."
-                }
-            ]
-        },
-        {
-            "recommendation_id": "rec_duplicate_rows",
-            "severity": "high",
-            "affected_columns": [
-                "dataset_wide"
-            ],
-            "issue_count": 1,
-            "recommendation": "Review detected issues and validate data quality, preprocessing stability, and model robustness.",
-            "issues": [
-                {
-                    "type": "duplicate_rows",
-                    "column": "dataset_wide",
-                    "severity": "high",
-                    "description": "5632 duplicate rows (100.0%)."
                 }
             ]
         },
