@@ -279,9 +279,7 @@ class DataChecks:
     # ==========================================
 
         duplicate_count = int(
-            df.duplicated(
-                keep=False
-            ).sum()
+            df.duplicated().sum()
         )
 
     # ==========================================
@@ -294,10 +292,7 @@ class DataChecks:
 
                 repeated_values = int(
                     df[column]
-                    .duplicated(
-                    keep=False
-                    )
-                    .sum()
+                    .duplicated().sum()
                 )
 
                 if repeated_values > 0:

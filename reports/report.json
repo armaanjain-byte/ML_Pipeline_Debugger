@@ -1,24 +1,32 @@
 {
     "pipeline_status": "success",
     "dataset": {
-        "rows": 300,
-        "columns": 5,
-        "target": "target",
+        "rows": 7043,
+        "columns": 21,
+        "target": "Churn",
         "task_type": "classification",
         "overlap_pct": 0.0,
         "overlap_count": 0
     },
     "feature_audit": [
         {
-            "feature": "age",
-            "dtype": "int64",
-            "missing_pct": 0.0,
-            "unique_values": 51,
+            "feature": "TotalCharges",
+            "dtype": "float64",
+            "missing_pct": 0.16,
+            "unique_values": 6530,
             "is_numeric": true,
             "is_categorical": false
         },
         {
-            "feature": "department",
+            "feature": "Churn",
+            "dtype": "str",
+            "missing_pct": 0.0,
+            "unique_values": 2,
+            "is_numeric": false,
+            "is_categorical": false
+        },
+        {
+            "feature": "Contract",
             "dtype": "str",
             "missing_pct": 0.0,
             "unique_values": 3,
@@ -26,146 +34,259 @@
             "is_categorical": false
         },
         {
-            "feature": "experience",
+            "feature": "Dependents",
+            "dtype": "str",
+            "missing_pct": 0.0,
+            "unique_values": 2,
+            "is_numeric": false,
+            "is_categorical": false
+        },
+        {
+            "feature": "DeviceProtection",
+            "dtype": "str",
+            "missing_pct": 0.0,
+            "unique_values": 3,
+            "is_numeric": false,
+            "is_categorical": false
+        },
+        {
+            "feature": "InternetService",
+            "dtype": "str",
+            "missing_pct": 0.0,
+            "unique_values": 3,
+            "is_numeric": false,
+            "is_categorical": false
+        },
+        {
+            "feature": "MonthlyCharges",
             "dtype": "float64",
             "missing_pct": 0.0,
-            "unique_values": 300,
+            "unique_values": 1585,
             "is_numeric": true,
             "is_categorical": false
         },
         {
-            "feature": "salary",
-            "dtype": "float64",
+            "feature": "MultipleLines",
+            "dtype": "str",
             "missing_pct": 0.0,
-            "unique_values": 300,
-            "is_numeric": true,
+            "unique_values": 3,
+            "is_numeric": false,
             "is_categorical": false
         },
         {
-            "feature": "target",
+            "feature": "OnlineBackup",
+            "dtype": "str",
+            "missing_pct": 0.0,
+            "unique_values": 3,
+            "is_numeric": false,
+            "is_categorical": false
+        },
+        {
+            "feature": "OnlineSecurity",
+            "dtype": "str",
+            "missing_pct": 0.0,
+            "unique_values": 3,
+            "is_numeric": false,
+            "is_categorical": false
+        },
+        {
+            "feature": "PaperlessBilling",
+            "dtype": "str",
+            "missing_pct": 0.0,
+            "unique_values": 2,
+            "is_numeric": false,
+            "is_categorical": false
+        },
+        {
+            "feature": "Partner",
+            "dtype": "str",
+            "missing_pct": 0.0,
+            "unique_values": 2,
+            "is_numeric": false,
+            "is_categorical": false
+        },
+        {
+            "feature": "PaymentMethod",
+            "dtype": "str",
+            "missing_pct": 0.0,
+            "unique_values": 4,
+            "is_numeric": false,
+            "is_categorical": false
+        },
+        {
+            "feature": "PhoneService",
+            "dtype": "str",
+            "missing_pct": 0.0,
+            "unique_values": 2,
+            "is_numeric": false,
+            "is_categorical": false
+        },
+        {
+            "feature": "SeniorCitizen",
             "dtype": "int64",
             "missing_pct": 0.0,
             "unique_values": 2,
+            "is_numeric": true,
+            "is_categorical": false
+        },
+        {
+            "feature": "StreamingMovies",
+            "dtype": "str",
+            "missing_pct": 0.0,
+            "unique_values": 3,
+            "is_numeric": false,
+            "is_categorical": false
+        },
+        {
+            "feature": "StreamingTV",
+            "dtype": "str",
+            "missing_pct": 0.0,
+            "unique_values": 3,
+            "is_numeric": false,
+            "is_categorical": false
+        },
+        {
+            "feature": "TechSupport",
+            "dtype": "str",
+            "missing_pct": 0.0,
+            "unique_values": 3,
+            "is_numeric": false,
+            "is_categorical": false
+        },
+        {
+            "feature": "customerID",
+            "dtype": "str",
+            "missing_pct": 0.0,
+            "unique_values": 7043,
+            "is_numeric": false,
+            "is_categorical": false
+        },
+        {
+            "feature": "gender",
+            "dtype": "str",
+            "missing_pct": 0.0,
+            "unique_values": 2,
+            "is_numeric": false,
+            "is_categorical": false
+        },
+        {
+            "feature": "tenure",
+            "dtype": "int64",
+            "missing_pct": 0.0,
+            "unique_values": 73,
             "is_numeric": true,
             "is_categorical": false
         }
     ],
     "psi_table": [
         {
-            "Feature": "salary",
-            "PSI Score": 0.5076,
-            "Drift Severity": "HIGH"
+            "Feature": "MonthlyCharges",
+            "PSI Score": 0.0122,
+            "Drift Severity": "LOW"
         },
         {
-            "Feature": "experience",
-            "PSI Score": 0.4179,
-            "Drift Severity": "MEDIUM"
+            "Feature": "tenure",
+            "PSI Score": 0.0109,
+            "Drift Severity": "LOW"
         },
         {
-            "Feature": "age",
-            "PSI Score": 0.1855,
+            "Feature": "TotalCharges",
+            "PSI Score": 0.0082,
+            "Drift Severity": "LOW"
+        },
+        {
+            "Feature": "SeniorCitizen",
+            "PSI Score": 0.0002,
             "Drift Severity": "LOW"
         }
     ],
     "vif_table": [
         {
-            "Feature": "salary",
-            "VIF Score": 9.3
+            "Feature": "TotalCharges",
+            "VIF Score": 8.22
         },
         {
-            "Feature": "age",
-            "VIF Score": 7.79
+            "Feature": "tenure",
+            "VIF Score": 6.46
         },
         {
-            "Feature": "experience",
-            "VIF Score": 5.42
+            "Feature": "MonthlyCharges",
+            "VIF Score": 3.74
         }
     ],
     "telemetry": {
-        "data_loading_seconds": 0.016489505767822266,
-        "split_seconds": 0.006227731704711914,
-        "integrity_checks_seconds": 0.052890777587890625,
-        "diagnostics_seconds": 0.167280912399292,
-        "recommendations_seconds": 7.081031799316406e-05,
-        "training_seconds": 0.05480146408081055,
-        "evaluation_seconds": 0.1794900894165039,
-        "importance_seconds": 0.0643162727355957,
-        "total_pipeline_seconds": 0.5423433780670166
+        "data_loading_seconds": 0.13508868217468262,
+        "split_seconds": 0.018329381942749023,
+        "integrity_checks_seconds": 1.3937511444091797,
+        "diagnostics_seconds": 0.36363768577575684,
+        "recommendations_seconds": 8.845329284667969e-05,
+        "training_seconds": 2.2297356128692627,
+        "evaluation_seconds": 10.005929708480835,
+        "importance_seconds": 0.14739751815795898,
+        "total_pipeline_seconds": 14.294608116149902
     },
     "issues": [
+        {
+            "type": "missing_values",
+            "column": "TotalCharges",
+            "severity": "low",
+            "description": "0.1% missing values detected."
+        },
+        {
+            "type": "high_cardinality",
+            "column": "customerID",
+            "severity": "high",
+            "description": "Categorical feature with excessive cardinality (5634 unique values)."
+        },
         {
             "type": "duplicate_rows",
             "column": "dataset_wide",
             "severity": "high",
-            "description": "238 duplicate rows (99.2%)."
+            "description": "5632 duplicate rows (100.0%)."
         },
         {
             "type": "multivariate_outliers",
             "column": "dataset_wide",
-            "severity": "high",
-            "description": "Detected 12 multivariate anomalies (5.0%)."
-        },
-        {
-            "type": "outliers",
-            "column": "experience",
-            "severity": "low",
-            "description": "1 univariate outliers detected (0.4%)."
-        },
-        {
-            "type": "feature_drift",
-            "column": "salary",
-            "severity": "high",
-            "description": "Distribution drift detected (PSI: 0.51)."
-        },
-        {
-            "type": "feature_drift",
-            "column": "experience",
             "severity": "medium",
-            "description": "Distribution drift detected (PSI: 0.42)."
+            "description": "Detected 100 multivariate anomalies (1.8%)."
         },
         {
             "type": "multicollinearity",
-            "column": "salary",
+            "column": "TotalCharges",
             "severity": "high",
-            "description": "High multicollinearity detected (VIF: 9.30)."
+            "description": "High multicollinearity detected (VIF: 8.22)."
         },
         {
             "type": "multicollinearity",
-            "column": "age",
+            "column": "tenure",
             "severity": "high",
-            "description": "High multicollinearity detected (VIF: 7.79)."
-        },
-        {
-            "type": "multicollinearity",
-            "column": "experience",
-            "severity": "high",
-            "description": "High multicollinearity detected (VIF: 5.42)."
+            "description": "High multicollinearity detected (VIF: 6.46)."
         }
     ],
     "metrics": {
         "train": {
-            "accuracy": 0.7958333333333333,
-            "precision": 0.7977591573177246,
-            "recall": 0.7958333333333333,
-            "f1": 0.7956737588652483,
+            "accuracy": 1.0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0,
             "roc_auc": 0.0
         },
         "holdout": {
-            "accuracy": 0.5,
-            "precision": 0.49887766554433216,
-            "recall": 0.5,
-            "f1": 0.4988839285714286,
+            "accuracy": 0.7913413768630234,
+            "precision": 0.7785346829949028,
+            "recall": 0.7913413768630234,
+            "f1": 0.7800489768369069,
             "roc_auc": 0.0
         },
         "cv": {
-            "cv_mean_f1_weighted": 0.5209326778729791,
-            "cv_std_f1_weighted": 0.0632916907715825,
+            "cv_mean_f1_weighted": 0.7787634060151849,
+            "cv_std_f1_weighted": 0.011655063966739394,
             "cv_folds": 5
         },
         "observability_flags": [
             {
                 "flag": "High Overfit Risk",
-                "detail": "Train f1 (0.796) significantly exceeds holdout (0.499)."
+                "detail": "Train f1 (1.000) significantly exceeds holdout (0.780)."
             }
         ]
     },
@@ -174,54 +295,23 @@
             "recommendation_id": "rec_multicollinearity",
             "severity": "high",
             "affected_columns": [
-                "age",
-                "experience",
-                "salary"
-            ],
-            "issue_count": 3,
-            "recommendation": "High multicollinearity detected. Consider feature selection or dimensionality reduction for: age, experience, salary.",
-            "issues": [
-                {
-                    "type": "multicollinearity",
-                    "column": "salary",
-                    "severity": "high",
-                    "description": "High multicollinearity detected (VIF: 9.30)."
-                },
-                {
-                    "type": "multicollinearity",
-                    "column": "age",
-                    "severity": "high",
-                    "description": "High multicollinearity detected (VIF: 7.79)."
-                },
-                {
-                    "type": "multicollinearity",
-                    "column": "experience",
-                    "severity": "high",
-                    "description": "High multicollinearity detected (VIF: 5.42)."
-                }
-            ]
-        },
-        {
-            "recommendation_id": "rec_feature_drift",
-            "severity": "high",
-            "affected_columns": [
-                "experience",
-                "salary"
+                "TotalCharges",
+                "tenure"
             ],
             "issue_count": 2,
-            "recommendation": "Detected train/test distribution drift. Review feature stability and data collection for: experience, salary.",
+            "recommendation": "High multicollinearity detected. Consider feature selection or dimensionality reduction for: TotalCharges, tenure.",
             "issues": [
                 {
-                    "type": "feature_drift",
-                    "column": "salary",
+                    "type": "multicollinearity",
+                    "column": "TotalCharges",
                     "severity": "high",
-                    "description": "Distribution drift detected (PSI: 0.51)."
+                    "description": "High multicollinearity detected (VIF: 8.22)."
                 },
                 {
-                    "type": "feature_drift",
-                    "column": "experience",
-                    "severity": "medium",
-                    "description": "Distribution drift detected (PSI: 0.42)."
+                    "type": "multicollinearity",
+                    "column": "tenure",
+                    "severity": "high",
+                    "description": "High multicollinearity detected (VIF: 6.46)."
                 }
             ]
         },
@@ -238,13 +328,30 @@
                     "type": "duplicate_rows",
                     "column": "dataset_wide",
                     "severity": "high",
-                    "description": "238 duplicate rows (99.2%)."
+                    "description": "5632 duplicate rows (100.0%)."
+                }
+            ]
+        },
+        {
+            "recommendation_id": "rec_high_cardinality",
+            "severity": "high",
+            "affected_columns": [
+                "customerID"
+            ],
+            "issue_count": 1,
+            "recommendation": "High-cardinality categorical features detected. Review encoding strategy and memory impact.",
+            "issues": [
+                {
+                    "type": "high_cardinality",
+                    "column": "customerID",
+                    "severity": "high",
+                    "description": "Categorical feature with excessive cardinality (5634 unique values)."
                 }
             ]
         },
         {
             "recommendation_id": "rec_multivariate_outliers",
-            "severity": "high",
+            "severity": "medium",
             "affected_columns": [
                 "dataset_wide"
             ],
@@ -254,25 +361,25 @@
                 {
                     "type": "multivariate_outliers",
                     "column": "dataset_wide",
-                    "severity": "high",
-                    "description": "Detected 12 multivariate anomalies (5.0%)."
+                    "severity": "medium",
+                    "description": "Detected 100 multivariate anomalies (1.8%)."
                 }
             ]
         },
         {
-            "recommendation_id": "rec_outliers",
+            "recommendation_id": "rec_missing_values",
             "severity": "low",
             "affected_columns": [
-                "experience"
+                "TotalCharges"
             ],
             "issue_count": 1,
-            "recommendation": "Outlier-heavy distributions detected. Consider robust scaling, clipping, or distribution-aware preprocessing.",
+            "recommendation": "Investigate missing-value patterns and consider imputation improvements for: TotalCharges.",
             "issues": [
                 {
-                    "type": "outliers",
-                    "column": "experience",
+                    "type": "missing_values",
+                    "column": "TotalCharges",
                     "severity": "low",
-                    "description": "1 univariate outliers detected (0.4%)."
+                    "description": "0.1% missing values detected."
                 }
             ]
         }

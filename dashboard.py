@@ -1,12 +1,13 @@
-# FILE: dashboard.py
-
 from __future__ import annotations
 
+import html
 import json
 import os
+import re
 import tempfile
 import warnings
 from datetime import datetime
+from html import unescape
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -25,7 +26,7 @@ warnings.filterwarnings("ignore")
 # ============================================================================
 
 st.set_page_config(
-    page_title="ML Reliability Platform",
+    page_title="ML Pipeline Debugger",
     page_icon="▢",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -38,75 +39,565 @@ st.set_page_config(
 st.markdown(
     """
 <style>
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
+
+    html, body, [data-testid="stAppViewContainer"] {
+        background: linear-gradient(135deg, #f5f7fa 0%, #f9fafc 100%);
+    }
+
+    [data-testid="stSidebar"] {
+        background: #ffffff;
+        border-right: 1px solid #e0e6ed;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+        gap: 0.3rem;
+    }
+
     .block-container {
-        padding-top: 1rem;
-        padding-bottom: 0.8rem;
-        padding-left: 1.5rem;
-        padding-right: 1.5rem;
-        max-width: 1600px;
+        padding-top: 1.5rem;
+        padding-bottom: 2rem;
+        padding-left: 2rem;
+        padding-right: 2rem;
+        max-width: 2000px;
+        margin: 0 auto;
     }
 
     h1 {
-        font-size: 1.8rem;
-        font-weight: 700;
-        margin-bottom: 0.3rem;
-        letter-spacing: -0.5px;
+        font-size: 2.8rem;
+        font-weight: 900;
+        margin-bottom: 0.2rem;
+        letter-spacing: -1px;
+        color: #0f172a;
+        line-height: 1.05;
     }
 
     h2 {
-        font-size: 1.2rem;
-        font-weight: 600;
-        border-bottom: 2px solid #2c3e50;
-        padding-bottom: 0.4rem;
-        margin-top: 1.2rem;
-        margin-bottom: 0.6rem;
+        font-size: 1.5rem;
+        font-weight: 800;
+        border-bottom: 3px solid #3b82f6;
+        padding-bottom: 0.6rem;
+        margin-top: 1.8rem;
+        margin-bottom: 1.2rem;
+        color: #0f172a;
+        letter-spacing: -0.3px;
     }
 
     h3 {
-        font-size: 1.05rem;
-        font-weight: 600;
+        font-size: 1.15rem;
+        font-weight: 700;
+        margin-top: 0.8rem;
+        margin-bottom: 0.6rem;
+        color: #0f172a;
+        letter-spacing: -0.2px;
+    }
+
+    h4 {
+        font-size: 0.98rem;
+        font-weight: 700;
+        color: #1e293b;
         margin-top: 0.6rem;
-        margin-bottom: 0.3rem;
-        color: #34495e;
+        margin-bottom: 0.4rem;
+        letter-spacing: -0.1px;
+    }
+
+    [data-testid="stMetricValue"] {
+        font-size: 1.9rem;
+        font-weight: 800;
+        color: #0f172a;
+    }
+
+    [data-testid="stMetricLabel"] {
+        font-size: 0.82rem;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    [data-testid="stMetric"] {
+        background: #ffffff;
+        padding: 1rem;
+        border-radius: 10px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    }
+
+    .header-section {
+        background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+        padding: 2.5rem 2.2rem;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+        margin-bottom: 2.5rem;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    }
+
+    .header-title {
+        font-size: 2.8rem;
+        font-weight: 900;
+        margin-bottom: 0.4rem;
+        color: #0f172a;
+        letter-spacing: -1px;
+    }
+
+    .header-subtitle {
+        font-size: 1rem;
+        color: #64748b;
+        font-weight: 500;
+        line-height: 1.5;
     }
 
     .deployment-banner {
-        padding: 1.2rem;
-        border-radius: 6px;
+        padding: 1.6rem;
+        border-radius: 12px;
         color: white;
-        font-weight: bold;
-        margin-bottom: 1.2rem;
+        font-weight: 700;
+        margin-bottom: 1.6rem;
         text-align: center;
-        font-size: 1.15rem;
-        box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+        font-size: 1.2rem;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.15);
+        border-left: 6px solid rgba(255, 255, 255, 0.3);
     }
 
     .metric-card {
-        background: #f8f9fa;
-        padding: 1rem;
-        border-radius: 6px;
-        border-left: 3px solid #3498db;
-        margin-bottom: 0.8rem;
+        background: #ffffff;
+        padding: 1.1rem 1.2rem;
+        border-radius: 11px;
+        border-left: 5px solid #3b82f6;
+        margin-bottom: 0.9rem;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        border: 1px solid #e2e8f0;
+    }
+
+    .metric-card:hover {
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+        transform: translateY(-3px);
+        border-color: #cbd5e1;
+    }
+
+    .metric-card-label {
+        font-weight: 800;
+        font-size: 0.8rem;
+        color: #1e293b;
+        margin-bottom: 0.5rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .metric-card-value {
+        font-size: 1.85rem;
+        font-weight: 900;
+        margin: 0.3rem 0;
+        color: #0f172a;
+        letter-spacing: -0.5px;
+    }
+
+    .metric-card-rationale {
+        font-size: 0.82rem;
+        color: #64748b;
+        font-style: italic;
+        margin-top: 0.4rem;
+        line-height: 1.5;
     }
 
     .severity-critical {
-        color: #c0392b;
-        font-weight: 700;
+        color: #7f1d1d;
+        font-weight: 800;
+        background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+        padding: 0.3rem 0.85rem;
+        border-radius: 999px;
+        display: inline-block;
+        font-size: 0.78rem;
+        margin-bottom: 0;
+        letter-spacing: 0.4px;
+        border: 1.5px solid #fca5a5;
     }
 
     .severity-high {
-        color: #d35400;
-        font-weight: 700;
+        color: #7c2d12;
+        font-weight: 800;
+        background: linear-gradient(135deg, #fed7aa 0%, #fdba74 100%);
+        padding: 0.3rem 0.85rem;
+        border-radius: 999px;
+        display: inline-block;
+        font-size: 0.78rem;
+        margin-bottom: 0;
+        letter-spacing: 0.4px;
+        border: 1.5px solid #fb923c;
     }
 
     .severity-medium {
-        color: #f39c12;
-        font-weight: 600;
+        color: #78350f;
+        font-weight: 800;
+        background: linear-gradient(135deg, #fef3c7 0%, #fcd34d 100%);
+        padding: 0.3rem 0.85rem;
+        border-radius: 999px;
+        display: inline-block;
+        font-size: 0.78rem;
+        margin-bottom: 0;
+        letter-spacing: 0.4px;
+        border: 1.5px solid #f59e0b;
     }
 
     .severity-low {
-        color: #27ae60;
-        font-weight: 600;
+        color: #166534;
+        font-weight: 800;
+        background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+        padding: 0.3rem 0.85rem;
+        border-radius: 999px;
+        display: inline-block;
+        font-size: 0.78rem;
+        margin-bottom: 0;
+        letter-spacing: 0.4px;
+        border: 1.5px solid #86efac;
+    }
+
+    .severity-info {
+        color: #164e63;
+        font-weight: 800;
+        background: linear-gradient(135deg, #cffafe 0%, #a5f3fc 100%);
+        padding: 0.3rem 0.85rem;
+        border-radius: 999px;
+        display: inline-block;
+        font-size: 0.78rem;
+        margin-bottom: 0;
+        letter-spacing: 0.4px;
+        border: 1.5px solid #67e8f9;
+    }
+
+    .section-divider {
+        margin: 1.5rem 0;
+        border: none;
+        border-top: 2px solid #e2e8f0;
+    }
+
+    .tab-content {
+        padding: 1.2rem 0;
+    }
+
+    [data-testid="stTabs"] [role="tablist"] {
+        border-bottom: 2px solid #e2e8f0;
+        gap: 0.5rem;
+    }
+
+    [data-testid="stTabs"] [role="tab"] {
+        padding: 0.75rem 1.4rem;
+        font-weight: 700;
+        font-size: 0.95rem;
+        color: #64748b;
+        border-bottom: 3px solid transparent;
+        transition: all 0.3s ease;
+        cursor: pointer;
+        border-radius: 6px 6px 0 0;
+    }
+
+    [data-testid="stTabs"] [role="tab"]:hover {
+        color: #0f172a;
+        background-color: #f1f5f9;
+    }
+
+    [data-testid="stTabs"] [role="tab"][aria-selected="true"] {
+        color: #1e40af;
+        border-bottom-color: #3b82f6;
+        font-weight: 800;
+        background-color: #f0f4f8;
+    }
+
+    [data-testid="stExpander"] {
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        background-color: #ffffff;
+        margin-bottom: 0.75rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+        overflow: hidden;
+    }
+
+    [data-testid="stExpander"] [role="button"] {
+        padding: 0.9rem 1.1rem;
+        font-weight: 700;
+        color: #1e293b;
+        background-color: #f8fafc;
+        border-radius: 9px;
+        font-size: 0.93rem;
+    }
+
+    [data-testid="stExpander"] [role="button"]:hover {
+        background-color: #f1f5f9;
+    }
+
+    [data-testid="stDataFrame"] {
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+    }
+
+    [data-testid="stDataFrame"] table {
+        background-color: #ffffff;
+    }
+
+    [data-testid="stDataFrame"] th {
+        background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+        color: #0f172a;
+        font-weight: 800;
+        border-bottom: 2px solid #cbd5e1;
+        padding: 0.95rem;
+        text-align: left;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+    }
+
+    [data-testid="stDataFrame"] td {
+        padding: 0.85rem 0.95rem;
+        border-bottom: 1px solid #e2e8f0;
+        color: #334155;
+        font-size: 0.92rem;
+    }
+
+    [data-testid="stDataFrame"] tr:hover {
+        background-color: #f8fafc;
+    }
+
+    .plotly-container {
+        background-color: #ffffff;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+        padding: 1.4rem;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        margin: 1.2rem 0;
+    }
+
+    [data-testid="stPlotlyChart"] {
+        background-color: transparent;
+    }
+
+    .column-container {
+        background-color: transparent;
+    }
+
+    .stSuccess {
+        background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%) !important;
+        color: #166534 !important;
+        border: 1.5px solid #bbf7d0 !important;
+        border-radius: 10px !important;
+        padding: 1rem !important;
+        box-shadow: 0 2px 6px rgba(16, 185, 129, 0.1) !important;
+    }
+
+    .stWarning {
+        background: linear-gradient(135deg, #fffbeb 0%, #fef9e7 100%) !important;
+        color: #78350f !important;
+        border: 1.5px solid #fcd34d !important;
+        border-radius: 10px !important;
+        padding: 1rem !important;
+        box-shadow: 0 2px 6px rgba(245, 158, 11, 0.1) !important;
+    }
+
+    .stError {
+        background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%) !important;
+        color: #7f1d1d !important;
+        border: 1.5px solid #fca5a5 !important;
+        border-radius: 10px !important;
+        padding: 1rem !important;
+        box-shadow: 0 2px 6px rgba(220, 38, 38, 0.1) !important;
+    }
+
+    .stInfo {
+        background: linear-gradient(135deg, #cffafe 0%, #a5f3fc 100%) !important;
+        color: #164e63 !important;
+        border: 1.5px solid #67e8f9 !important;
+        border-radius: 10px !important;
+        padding: 1rem !important;
+        box-shadow: 0 2px 6px rgba(14, 165, 233, 0.1) !important;
+    }
+
+    button[kind="primary"] {
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%) !important;
+        color: white !important;
+        font-weight: 800 !important;
+        border-radius: 10px !important;
+        padding: 0.75rem 1.8rem !important;
+        border: none !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        font-size: 0.98rem !important;
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
+    }
+
+    button[kind="primary"]:hover {
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
+        box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4) !important;
+        transform: translateY(-2px) !important;
+    }
+
+    .sidebar-section {
+        padding: 0.8rem 0;
+        border-bottom: 1px solid #e2e8f0;
+        margin-bottom: 0.3rem;
+    }
+
+    .sidebar-section:last-child {
+        border-bottom: none;
+    }
+
+    .sidebar-label {
+        font-weight: 800;
+        font-size: 0.8rem;
+        color: #0f172a;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 0.5rem;
+        display: block;
+    }
+
+    .component-spacing {
+        margin-bottom: 1.5rem;
+    }
+
+    .reliability-gauge {
+        background-color: #ffffff;
+        border-radius: 12px;
+        border: 1px solid #e2e8f0;
+        padding: 1.4rem;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    }
+
+    .component-grid {
+        display: grid;
+        gap: 1rem;
+        margin-top: 1rem;
+    }
+
+    .recommendation-item {
+        background-color: #ffffff;
+        border-left: 6px solid #3b82f6;
+        padding: 1.2rem 1.4rem;
+        border-radius: 11px;
+        margin-bottom: 1rem;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        transition: all 0.3s ease;
+    }
+
+    .recommendation-item:hover {
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+    }
+
+    .recommendation-item.critical {
+        border-left-color: #dc2626;
+        background: linear-gradient(135deg, #ffffff 0%, #fef2f2 100%);
+        border-color: #fecaca;
+    }
+
+    .recommendation-item.high {
+        border-left-color: #ea580c;
+        background: linear-gradient(135deg, #ffffff 0%, #fffbf0 100%);
+        border-color: #fdba74;
+    }
+
+    .recommendation-item.medium {
+        border-left-color: #eab308;
+        background: linear-gradient(135deg, #ffffff 0%, #fffef5 100%);
+        border-color: #fcd34d;
+    }
+
+    .recommendation-item.low {
+        border-left-color: #16a34a;
+        background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
+        border-color: #bbf7d0;
+    }
+
+    .recommendation-item.info {
+        border-left-color: #0ea5e9;
+        background: linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%);
+        border-color: #a5f3fc;
+    }
+
+    .recommendation-title {
+        font-weight: 800;
+        color: #0f172a;
+        margin-bottom: 0;
+        font-size: 0.98rem;
+        letter-spacing: -0.2px;
+    }
+
+    .recommendation-content {
+        color: #475569;
+        font-size: 0.93rem;
+        line-height: 1.6;
+        margin: 0;
+    }
+
+    .recommendation-section {
+        margin-top: 1rem;
+        padding-top: 1rem;
+        border-top: 1px solid rgba(0, 0, 0, 0.06);
+    }
+
+    .recommendation-section-title {
+        font-weight: 800;
+        color: #0f172a;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        margin-bottom: 0.5rem;
+    }
+
+    .recommendation-section ul {
+        margin: 0.4rem 0;
+        padding-left: 1.6rem;
+    }
+
+    .recommendation-section li {
+        color: #475569;
+        font-size: 0.93rem;
+        line-height: 1.6;
+        margin-bottom: 0.35rem;
+    }
+
+    .issue-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 1rem 1.1rem;
+        margin-bottom: 0.85rem;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    }
+
+    .issue-card:hover {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+    }
+
+    .issue-severity-badge {
+        display: inline-block;
+        padding: 0.28rem 0.75rem;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 800;
+        margin-bottom: 0.5rem;
+        letter-spacing: 0.3px;
+    }
+
+    .issue-column {
+        font-family: 'Monaco', 'Courier New', monospace;
+        background: #f1f5f9;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.85rem;
+        font-weight: 700;
+        color: #1e293b;
+    }
+
+    .issue-description {
+        color: #475569;
+        font-size: 0.93rem;
+        line-height: 1.6;
+        margin-top: 0.35rem;
     }
 </style>
 """,
@@ -616,8 +1107,8 @@ class ReliabilityAuditor:
     ) -> Dict[str, str]:
         if score >= 85:
             return {
-                "status": "✓ DEPLOYMENT READY",
-                "color": "#27ae60",
+                "status": "DEPLOYMENT READY",
+                "color": "#10b981",
                 "message": (
                     "Pipeline passed reliability audit."
                 ),
@@ -628,8 +1119,8 @@ class ReliabilityAuditor:
 
         elif score >= 70:
             return {
-                "status": "⚠ CONDITIONAL DEPLOYMENT",
-                "color": "#f39c12",
+                "status": "CONDITIONAL DEPLOYMENT",
+                "color": "#f59e0b",
                 "message": (
                     "Pipeline has moderate concerns."
                 ),
@@ -640,8 +1131,8 @@ class ReliabilityAuditor:
 
         elif score >= 50:
             return {
-                "status": "✗ DEPLOYMENT BLOCKED",
-                "color": "#e67e22",
+                "status": "DEPLOYMENT BLOCKED",
+                "color": "#ef5350",
                 "message": (
                     "Critical reliability gaps detected."
                 ),
@@ -651,8 +1142,8 @@ class ReliabilityAuditor:
             }
 
         return {
-            "status": "✗✗ SEVERE ISSUES",
-            "color": "#c0392b",
+            "status": "SEVERE ISSUES DETECTED",
+            "color": "#c62828",
             "message": (
                 "Pipeline exhibits severe failures."
             ),
@@ -666,15 +1157,15 @@ class ReliabilityAuditor:
         score: float,
     ) -> str:
         if score >= 85:
-            return "#27ae60"
+            return "#10b981"
 
         if score >= 70:
-            return "#f39c12"
+            return "#f59e0b"
 
         if score >= 50:
-            return "#e67e22"
+            return "#ef5350"
 
-        return "#c0392b"
+        return "#c62828"
 
 
 # ============================================================================
@@ -705,10 +1196,10 @@ class AdvancedVisualizationEngine:
                 return None
 
             colors_map = {
-                "LOW": "#27ae60",
-                "MEDIUM": "#f39c12",
-                "HIGH": "#e67e22",
-                "CRITICAL": "#c0392b",
+                "LOW": "#10b981",
+                "MEDIUM": "#f59e0b",
+                "HIGH": "#ef5350",
+                "CRITICAL": "#c62828",
             }
 
             fig = go.Figure(
@@ -720,25 +1211,42 @@ class AdvancedVisualizationEngine:
                             color=df[
                                 "Drift Severity"
                             ].map(colors_map),
+                            line=dict(
+                                color="rgba(0,0,0,0.08)",
+                                width=0.5,
+                            ),
                         ),
                         text=df[
                             "PSI Score"
                         ].round(2),
                         textposition="outside",
+                        hovertemplate="<b>%{x}</b><br>PSI Score: %{y:.3f}<extra></extra>",
                     )
                 ]
             )
 
             fig.update_layout(
-                height=350,
+                height=380,
                 xaxis={
-                    "tickangle": -45
+                    "tickangle": -45,
+                    "showgrid": False,
                 },
-                title=(
-                    "Feature Drift Severity "
-                    "(Population Stability Index)"
-                ),
+                yaxis={
+                    "showgrid": True,
+                    "gridwidth": 1,
+                    "gridcolor": "rgba(0,0,0,0.03)",
+                },
+                title={
+                    "text": "Feature Drift Severity (Population Stability Index)",
+                    "x": 0.5,
+                    "xanchor": "center",
+                    "font": {"size": 13, "color": "#1e293b", "family": "sans-serif"},
+                },
                 yaxis_title="PSI Score",
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)",
+                font={"family": "sans-serif", "color": "#475569"},
+                margin={"b": 100, "l": 60, "r": 40, "t": 50},
                 showlegend=False,
             )
 
@@ -778,45 +1286,56 @@ class DashboardState:
 
 def render_sidebar() -> Dict[str, Any]:
     st.sidebar.markdown(
-        "### Audit Configuration"
+        "<div class='sidebar-label'>Audit Configuration</div>",
+        unsafe_allow_html=True,
     )
 
     with st.sidebar:
+        st.markdown("<div class='sidebar-section'>", unsafe_allow_html=True)
         uploaded_file = st.file_uploader(
             "Dataset (CSV)",
             type=["csv"],
+            help="Upload a CSV file for analysis",
         )
+        st.markdown("</div>", unsafe_allow_html=True)
 
+        st.markdown("<div class='sidebar-section'>", unsafe_allow_html=True)
         target_column = st.text_input(
             "Target Variable",
             value="",
-            placeholder="Column name",
+            placeholder="Enter column name",
+            help="The target variable for analysis",
         )
+        st.markdown("</div>", unsafe_allow_html=True)
 
+        st.markdown("<div class='sidebar-section'>", unsafe_allow_html=True)
         col1, col2 = st.columns(2)
 
         with col1:
             task_type = st.selectbox(
-                "Task",
+                "Task Type",
                 [
                     "classification",
                     "regression",
                 ],
+                help="Select the ML task type",
             )
 
         with col2:
             dev_mode = st.checkbox(
                 "Fast Mode",
                 value=False,
+                help="Run faster analysis",
             )
+        st.markdown("</div>", unsafe_allow_html=True)
 
-        st.markdown("---")
-
+        st.markdown("<div class='sidebar-section'>", unsafe_allow_html=True)
         run_button = st.button(
             "Run Audit",
             use_container_width=True,
             type="primary",
         )
+        st.markdown("</div>", unsafe_allow_html=True)
 
         return {
             "uploaded_file": uploaded_file,
@@ -864,94 +1383,120 @@ def render_executive_summary(
         st.markdown(
             f"""
             <div class='deployment-banner'
-            style='background-color:
-            {recommendation["color"]}'>
-            {recommendation["status"]}<br>
-            <span style='font-size:0.9rem;
-            font-weight:normal;'>
+            style='background: linear-gradient(135deg, {recommendation["color"]} 0%, {recommendation["color"]}dd 100%);'>
+            <div style='font-size: 1.25rem; font-weight: 800; margin-bottom: 0.3rem;'>{recommendation["status"]}</div>
+            <div style='font-size: 0.95rem; font-weight: 500; opacity: 0.95;'>
             {recommendation["message"]}
-            </span>
+            </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-        col1, col2 = st.columns(
-            [1, 2]
-        )
+        col1, col2 = st.columns([1.15, 1.85])
 
         with col1:
+            st.markdown(
+                "<div class='reliability-gauge'>",
+                unsafe_allow_html=True,
+            )
             fig = go.Figure(
                 go.Indicator(
                     mode="gauge+number",
                     value=overall_score,
                     title={
-                        "text":
-                        "Reliability Index"
+                        "text": "Reliability Index",
+                        "font": {"size": 15, "color": "#1e293b"},
                     },
+                    number={"font": {"size": 32, "color": "#0f172a"}},
                     gauge={
                         "axis": {
-                            "range":
-                            [0, 100]
+                            "range": [0, 100],
+                            "tickcolor": "#cbd5e1",
                         },
                         "bar": {
-                            "color":
-                            ReliabilityAuditor.get_score_color(
+                            "color": ReliabilityAuditor.get_score_color(
                                 overall_score
-                            )
+                            ),
+                            "thickness": 0.28,
                         },
+                        "bgcolor": "#f1f5f9",
+                        "borderwidth": 0,
+                        "steps": [
+                            {
+                                "range": [0, 50],
+                                "color": "#fee2e2",
+                            },
+                            {
+                                "range": [50, 70],
+                                "color": "#fed7aa",
+                            },
+                            {
+                                "range": [70, 85],
+                                "color": "#fef3c7",
+                            },
+                            {
+                                "range": [85, 100],
+                                "color": "#dcfce7",
+                            },
+                        ],
                     },
                 )
             )
 
             fig.update_layout(
-                height=250,
+                height=300,
+                margin={"t": 20, "b": 10, "l": 10, "r": 10},
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
             )
 
             st.plotly_chart(
                 fig,
                 use_container_width=True,
+                config={"displayModeBar": False},
             )
+            st.markdown("</div>", unsafe_allow_html=True)
 
         with col2:
             st.markdown(
-                "**Reliability Components**"
+                "<div style='margin-bottom: 0.8rem;'><h3 style='margin: 0; color: #0f172a;'>Reliability Components</h3></div>",
+                unsafe_allow_html=True,
             )
 
             for (
                 component_name,
                 component_data,
             ) in components.items():
-                score = component_data[
-                    "score"
-                ]
+                score = component_data["score"]
 
-                color = (
-                    "green"
-                    if score >= 80
-                    else "orange"
-                    if score >= 60
-                    else "red"
-                )
+                if score >= 80:
+                    color = "#10b981"
+                    bg_color = "#f0fdf4"
+                elif score >= 60:
+                    color = "#f59e0b"
+                    bg_color = "#fffbf0"
+                else:
+                    color = "#dc2626"
+                    bg_color = "#fee2e2"
 
                 st.markdown(
                     f"""
-                    <div class='metric-card'>
-                    <b>{component_name}</b>
-                    <span style='color:{color};
-                    font-weight:bold;'>
-                    {score:.0f}/100
-                    </span><br>
-                    <span style='font-size:0.85rem;
-                    color:#7f8c8d;'>
-                    {component_data["rationale"]}
-                    </span>
+                    <div class='metric-card' style='border-left-color: {color}; background-color: {bg_color};'>
+                    <div class='metric-card-label' style='color: {color};'>{component_name}</div>
+                    <div class='metric-card-value' style='color: {color};'>{score:.0f}/100</div>
+                    <div class='metric-card-rationale'>{component_data["rationale"]}</div>
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
 
-        st.markdown("---")
+        st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+
+        st.markdown(
+            "<h2 style='margin: 1.2rem 0 1rem 0; color: #0f172a; border: none; padding: 0;'>Execution Telemetry</h2>",
+            unsafe_allow_html=True,
+        )
 
         telemetry = (
             SchemaAdapter.get_telemetry(
@@ -1027,21 +1572,21 @@ def render_data_quality_deep_dive(
             )
         )
 
-        col1, col2, col3, col4 = (
-            st.columns(4)
+        st.markdown(
+            "<h2 style='margin: 0 0 1rem 0; color: #0f172a; border: none; padding: 0;'>Dataset Overview</h2>",
+            unsafe_allow_html=True,
         )
 
+        col1, col2, col3, col4 = st.columns(4)
+
         col1.metric(
-            "Rows",
-            dataset_info.get("rows", 0),
+            "Total Rows",
+            f"{dataset_info.get('rows', 0):,}",
         )
 
         col2.metric(
-            "Columns",
-            dataset_info.get(
-                "columns",
-                0,
-            ),
+            "Total Columns",
+            f"{dataset_info.get('columns', 0)}",
         )
 
         overlap_pct = (
@@ -1054,67 +1599,83 @@ def render_data_quality_deep_dive(
         )
 
         col3.metric(
-            "Overlap",
+            "Overlap %",
             f"{overlap_pct:.2f}%",
         )
 
         col4.metric(
-            "Issues",
-            len(issues),
+            "Total Issues",
+            f"{len(issues)}",
         )
 
-        st.markdown("---")
+        st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
 
-        issue_types: Dict[
-            str,
-            List[Dict[str, Any]]
-        ] = {}
+        st.markdown(
+            "<h2 style='margin: 0 0 1rem 0; color: #0f172a; border: none; padding: 0;'>Issue Breakdown</h2>",
+            unsafe_allow_html=True,
+        )
 
-        for issue in issues:
-            issue_type = issue.get(
-                "type",
-                "unknown",
-            )
+        if not issues:
+            st.success("No data quality issues detected.")
+        else:
+            issue_types: Dict[
+                str,
+                List[Dict[str, Any]]
+            ] = {}
 
-            issue_types.setdefault(
+            for issue in issues:
+                issue_type = issue.get(
+                    "type",
+                    "unknown",
+                )
+
+                issue_types.setdefault(
+                    issue_type,
+                    [],
+                ).append(issue)
+
+            for (
                 issue_type,
-                [],
-            ).append(issue)
-
-        for (
-            issue_type,
-            issue_list,
-        ) in sorted(
-            issue_types.items()
-        ):
-            with st.expander(
-                f"{issue_type.replace('_', ' ').title()} "
-                f"({len(issue_list)})"
+                issue_list,
+            ) in sorted(
+                issue_types.items()
             ):
-                for issue in issue_list:
-                    severity = (
-                        Normalizer.normalize_severity(
-                            issue.get(
-                                "severity"
+                with st.expander(
+                    f"{issue_type.replace('_', ' ').title()} ({len(issue_list)})",
+                    expanded=False,
+                ):
+                    for idx, issue in enumerate(issue_list, 1):
+                        severity = (
+                            Normalizer.normalize_severity(
+                                issue.get(
+                                    "severity"
+                                )
                             )
                         )
-                    )
 
-                    st.markdown(
-                        f"""
-                        <div class='severity-{severity}'>
-                        [{severity.upper()}]
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
+                        column = issue.get(
+                            "column",
+                            "dataset",
+                        )
 
-                    st.markdown(
-                        f"""
-                        **Column:** {issue.get("column", "dataset")}  
-                        **Description:** {issue.get("description", "")}
-                        """
-                    )
+                        description = issue.get(
+                            "description",
+                            "N/A",
+                        )
+
+                        st.markdown(
+                            f"""
+                            <div class='issue-card'>
+                                <div class='issue-severity-badge severity-{severity}'>{severity.upper()}</div>
+                                <div style='margin-top: 0.35rem;'>
+                                    <span style='color: #64748b; font-size: 0.85rem;'>Column:</span>
+                                    <span class='issue-column'>{column}</span>
+                                </div>
+                                <div class='issue-description'><strong>Description:</strong> {description}</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
 
 
 # ============================================================================
@@ -1139,23 +1700,29 @@ def render_statistical_stability(
 
         if obs_flags:
             st.warning(
-                "Generalization issues detected."
+                f"Detected {len(obs_flags)} generalization concern(s)"
             )
 
-            for flag in obs_flags:
-                st.markdown(
-                    f"""
-                    **{flag.get("flag", "Flag")}**  
-                    {flag.get("detail", "")}
-                    """
-                )
+            for idx, flag in enumerate(obs_flags, 1):
+                with st.expander(
+                    f"Concern {idx}: {flag.get('flag', 'Issue')}",
+                    expanded=False,
+                ):
+                    st.markdown(
+                        f"{flag.get('detail', 'No additional details.')}"
+                    )
 
         else:
             st.success(
-                "Model exhibits stable generalization."
+                "Model exhibits stable generalization across all checks."
             )
 
-        st.markdown("---")
+        st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+
+        st.markdown(
+            "<h2 style='margin: 0 0 1rem 0; color: #0f172a; border: none; padding: 0;'>Metric Comparison</h2>",
+            unsafe_allow_html=True,
+        )
 
         train_metrics = (
             SchemaAdapter.get_train_metrics(
@@ -1193,46 +1760,46 @@ def render_statistical_stability(
             )
         )
 
-        gap = train_val - holdout_val
+        gap = abs(train_val - holdout_val)
 
-        col1, col2, col3 = (
-            st.columns(3)
-        )
+        col1, col2, col3 = st.columns(3)
 
         col1.metric(
-            "Train",
+            f"Train {primary_metric.upper()}",
             f"{train_val:.4f}",
         )
 
         col2.metric(
-            "Holdout",
+            f"Holdout {primary_metric.upper()}",
             f"{holdout_val:.4f}",
         )
 
+        gap_status = "OK" if gap < 0.1 else "WARNING"
         col3.metric(
-            "Gap",
+            "Train-Holdout Gap",
             f"{gap:.4f}",
+            delta=gap_status,
         )
 
-        st.markdown("---")
+        st.markdown("<div class='section-divider'></div>", unsafe_allow_html=True)
+
+        st.markdown(
+            "<h2 style='margin: 0 0 1rem 0; color: #0f172a; border: none; padding: 0;'>All Metrics</h2>",
+            unsafe_allow_html=True,
+        )
 
         metrics_df = pd.DataFrame(
             {
-                "Metric":
-                list(
+                "Metric": list(
                     holdout_metrics.keys()
                 ),
-                "Holdout":
-                list(
-                    holdout_metrics.values()
-                ),
+                "Holdout": [
+                    f"{Normalizer.safe_float(v):.4f}"
+                    for v in holdout_metrics.values()
+                ],
                 "Train": [
-                    train_metrics.get(
-                        metric,
-                        np.nan,
-                    )
-                    for metric
-                    in holdout_metrics.keys()
+                    f"{Normalizer.safe_float(train_metrics.get(metric, 0.0)):.4f}"
+                    for metric in holdout_metrics.keys()
                 ],
             }
         )
@@ -1281,15 +1848,20 @@ def render_feature_analysis(
 
         feat_tab1, feat_tab2, feat_tab3, feat_tab4 = st.tabs(
             [
-                "Drift",
+                "Drift Analysis",
                 "Multicollinearity",
                 "Schema Audit",
-                "Importance",
+                "Feature Importance",
             ]
         )
 
         with feat_tab1:
             if psi_data:
+                st.markdown(
+                    "<h3 style='margin: 0 0 1rem 0; color: #0f172a;'>Population Stability Index</h3>",
+                    unsafe_allow_html=True,
+                )
+
                 fig = (
                     AdvancedVisualizationEngine.create_drift_severity_heatmap(
                         psi_data
@@ -1297,11 +1869,21 @@ def render_feature_analysis(
                 )
 
                 if fig:
+                    st.markdown(
+                        "<div class='plotly-container'>",
+                        unsafe_allow_html=True,
+                    )
                     st.plotly_chart(
                         fig,
                         use_container_width=True,
+                        config={"displayModeBar": False},
                     )
+                    st.markdown("</div>", unsafe_allow_html=True)
 
+                st.markdown(
+                    "<h3 style='margin: 1.4rem 0 0.8rem 0; color: #0f172a;'>Detailed Results</h3>",
+                    unsafe_allow_html=True,
+                )
                 st.dataframe(
                     pd.DataFrame(psi_data),
                     use_container_width=True,
@@ -1310,24 +1892,36 @@ def render_feature_analysis(
 
             else:
                 st.info(
-                    "No drift analysis available."
+                    "No drift analysis data available."
                 )
 
         with feat_tab2:
             if vif_data:
+                st.markdown(
+                    "<h3 style='margin: 0 0 1rem 0; color: #0f172a;'>Variance Inflation Factor (VIF)</h3>",
+                    unsafe_allow_html=True,
+                )
                 st.dataframe(
                     pd.DataFrame(vif_data),
                     use_container_width=True,
                     hide_index=True,
                 )
 
+                st.info(
+                    "VIF > 10 typically indicates high multicollinearity. Consider feature engineering or selection."
+                )
+
             else:
                 st.success(
-                    "No major multicollinearity detected."
+                    "No major multicollinearity issues detected."
                 )
 
         with feat_tab3:
             if feature_audit:
+                st.markdown(
+                    "<h3 style='margin: 0 0 1rem 0; color: #0f172a;'>Feature Schema Audit</h3>",
+                    unsafe_allow_html=True,
+                )
                 st.dataframe(
                     pd.DataFrame(
                         feature_audit
@@ -1338,46 +1932,72 @@ def render_feature_analysis(
 
             else:
                 st.info(
-                    "No schema audit available."
+                    "No schema audit data available."
                 )
 
         with feat_tab4:
             if feature_importance:
+                st.markdown(
+                    "<h3 style='margin: 0 0 1rem 0; color: #0f172a;'>Top 15 Features by Importance</h3>",
+                    unsafe_allow_html=True,
+                )
+
                 sorted_importance = dict(
                     sorted(
                         feature_importance.items(),
-                        key=lambda item:
-                        item[1],
+                        key=lambda item: item[1],
                         reverse=True,
                     )[:15]
                 )
 
                 fig = px.bar(
-                    x=list(
-                        sorted_importance.values()
-                    ),
-                    y=list(
-                        sorted_importance.keys()
-                    ),
+                    x=list(sorted_importance.values()),
+                    y=list(sorted_importance.keys()),
                     orientation="h",
+                    labels={
+                        "x": "Importance Score",
+                        "y": "Feature",
+                    },
+                )
+
+                fig.update_traces(
+                    marker=dict(
+                        color="#3b82f6",
+                        line=dict(
+                            color="rgba(0,0,0,0.08)",
+                            width=0.5,
+                        ),
+                    )
                 )
 
                 fig.update_layout(
                     height=450,
-                    yaxis={
-                        "categoryorder":
-                        "total ascending"
+                    yaxis={"categoryorder": "total ascending"},
+                    xaxis={
+                        "showgrid": True,
+                        "gridwidth": 1,
+                        "gridcolor": "rgba(0,0,0,0.03)",
                     },
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    font={"family": "sans-serif", "color": "#475569"},
+                    margin={"l": 150, "b": 40, "t": 20, "r": 20},
                 )
 
+                st.markdown(
+                    "<div class='plotly-container'>",
+                    unsafe_allow_html=True,
+                )
                 st.plotly_chart(
                     fig,
                     use_container_width=True,
+                    config={"displayModeBar": False},
                 )
+                st.markdown("</div>", unsafe_allow_html=True)
 
             else:
                 st.info(
-                    "No feature importance available."
+                    "No feature importance data available."
                 )
 
 
@@ -1386,11 +2006,90 @@ def render_feature_analysis(
 # ============================================================================
 
 
+def _safe_render_content(content: str) -> str:
+    """
+    Clean malformed recommendation payloads.
+
+    Handles:
+    1. Plain text recommendations
+    2. Legacy HTML recommendation blobs
+    3. Escaped HTML payloads
+    4. Corrupted nested recommendation cards
+    """
+
+    if content is None:
+        return "No recommendation provided."
+
+    content = str(content)
+
+    # Decode escaped HTML entities
+    content = html.unescape(content)
+
+    # Remove markdown fences
+    content = re.sub(
+        r"```(?:html)?",
+        "",
+        content,
+        flags=re.IGNORECASE,
+    )
+
+    content = content.replace(
+        "```",
+        "",
+    )
+
+    # =====================================================
+    # Legacy full-card HTML extraction
+    # =====================================================
+
+    if (
+        "recommendation-content" in content
+        or "recommendation-item" in content
+    ):
+
+        match = re.search(
+            r"<div[^>]*class=['\"]recommendation-content['\"][^>]*>(.*?)</div>",
+            content,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+
+        if match:
+            content = match.group(1).strip()
+
+        else:
+            content = re.sub(
+                r"<[^>]+>",
+                " ",
+                content,
+            )
+
+    # Remove remaining HTML tags
+    content = re.sub(
+        r"<[^>]+>",
+        " ",
+        content,
+    )
+
+    # Normalize whitespace
+    content = re.sub(
+        r"\s+",
+        " ",
+        content,
+    ).strip()
+
+    if not content:
+        return "No recommendation provided."
+
+    return content
+
+
 def render_recommendations_audit(
     result: Dict[str, Any],
     tab,
 ) -> None:
+
     with tab:
+
         recommendations = (
             SchemaAdapter.get_recommendations(
                 result
@@ -1399,45 +2098,18 @@ def render_recommendations_audit(
 
         if not recommendations:
             st.success(
-                "No major recommendations."
+                "No recommendations at this time. Pipeline is in good shape."
             )
             return
 
-        severity_filter = st.selectbox(
-            "Severity Filter",
-            [
-                "All",
-                "Critical",
-                "High",
-                "Medium",
-                "Low",
-            ],
-        )
+        # =====================================================
+        # Severity Counts
+        # =====================================================
 
-        filtered_recommendations = (
-            recommendations
-        )
+        severity_counts = {}
 
-        if severity_filter != "All":
-            filtered_recommendations = [
-                recommendation
-                for recommendation
-                in recommendations
-                if Normalizer.normalize_severity(
-                    recommendation.get(
-                        "severity"
-                    )
-                )
-                == severity_filter.lower()
-            ]
+        for recommendation in recommendations:
 
-        for (
-            index,
-            recommendation,
-        ) in enumerate(
-            filtered_recommendations,
-            start=1,
-        ):
             severity = (
                 Normalizer.normalize_severity(
                     recommendation.get(
@@ -1446,49 +2118,265 @@ def render_recommendations_audit(
                 )
             )
 
-            with st.expander(
-                f"[{severity.upper()}] "
-                f"Recommendation {index}"
-            ):
+            severity_counts[severity] = (
+                severity_counts.get(
+                    severity,
+                    0,
+                )
+                + 1
+            )
+
+        metric_cols = st.columns(5)
+
+        metric_cols[0].metric(
+            "Critical",
+            severity_counts.get(
+                "critical",
+                0,
+            ),
+        )
+
+        metric_cols[1].metric(
+            "High",
+            severity_counts.get(
+                "high",
+                0,
+            ),
+        )
+
+        metric_cols[2].metric(
+            "Medium",
+            severity_counts.get(
+                "medium",
+                0,
+            ),
+        )
+
+        metric_cols[3].metric(
+            "Low",
+            severity_counts.get(
+                "low",
+                0,
+            ),
+        )
+
+        metric_cols[4].metric(
+            "Info",
+            severity_counts.get(
+                "info",
+                0,
+            ),
+        )
+
+        st.markdown(
+            "<div class='section-divider'></div>",
+            unsafe_allow_html=True,
+        )
+
+        # =====================================================
+        # Filter
+        # =====================================================
+
+        severity_filter = st.selectbox(
+            "Filter by Severity",
+            [
+                "All",
+                "Critical",
+                "High",
+                "Medium",
+                "Low",
+                "Info",
+            ],
+        )
+
+        filtered_recommendations = (
+            recommendations
+        )
+
+        if severity_filter != "All":
+
+            filtered_recommendations = [
+                recommendation
+                for recommendation in recommendations
                 if (
-                    "recommendation"
-                    in recommendation
-                ):
-                    st.markdown(
-                        recommendation[
-                            "recommendation"
-                        ]
-                    )
-
-                if (
-                    "affected_columns"
-                    in recommendation
-                ):
-                    st.markdown(
-                        "**Affected Columns:**"
-                    )
-
-                    st.write(
-                        recommendation[
-                            "affected_columns"
-                        ]
-                    )
-
-                if (
-                    "issues"
-                    in recommendation
-                ):
-                    st.markdown(
-                        "**Supporting Issues:**"
-                    )
-
-                    for issue in recommendation[
-                        "issues"
-                    ]:
-                        st.markdown(
-                            f"- {issue.get('description', '')}"
+                    Normalizer.normalize_severity(
+                        recommendation.get(
+                            "severity"
                         )
+                    )
+                    == severity_filter.lower()
+                )
+            ]
 
+        st.markdown(
+            f"""
+            <h2 style='margin-top: 1.5rem;'>
+                Recommendations ({len(filtered_recommendations)})
+            </h2>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # =====================================================
+        # Render Cards
+        # =====================================================
+
+        for (
+            idx,
+            recommendation,
+        ) in enumerate(
+            filtered_recommendations,
+            start=1,
+        ):
+
+            severity = (
+                Normalizer.normalize_severity(
+                    recommendation.get(
+                        "severity"
+                    )
+                )
+            )
+
+            raw_payload = recommendation.get(
+                "recommendation",
+                "No recommendation available.",
+            )
+
+            recommendation_text = _safe_render_content(
+                raw_payload
+            )
+
+            if (
+                recommendation_text.strip().startswith("<div")
+                or "recommendation-item" in recommendation_text
+            ):
+                recommendation_text = re.sub(
+                r"<[^>]+>",
+                " ",
+                recommendation_text,
+                )
+
+                recommendation_text = re.sub(
+                    r"\s+",
+                    " ",
+                    recommendation_text,
+                ).strip()
+
+            affected_columns = (
+                recommendation.get(
+                    "affected_columns",
+                    [],
+                )
+            )
+
+            issues = recommendation.get(
+                "issues",
+                [],
+            )
+
+            severity_html = (
+                f"<span class='severity-{severity}'>"
+                f"{severity.upper()}"
+                f"</span>"
+            )
+
+            card_html = f"""
+            <div class='recommendation-item {severity}'>
+
+                <div style='display:flex;align-items:center;gap:0.8rem;margin-bottom:1rem;'>
+
+                    <div class='recommendation-title'>
+                        Recommendation {idx}
+                    </div>
+
+                    {severity_html}
+
+                </div>
+
+                <div class='recommendation-content'>
+                    {recommendation_text}
+                </div>
+            """
+
+            # =================================================
+            # Affected Columns
+            # =================================================
+
+            if affected_columns:
+
+                columns_html = "".join(
+                    [
+                        f'''
+                        <span
+                            style="
+                                display:inline-block;
+                                background:#e2e8f0;
+                                color:#0f172a;
+                                padding:0.3rem 0.7rem;
+                                border-radius:999px;
+                                margin-right:0.5rem;
+                                margin-top:0.5rem;
+                                font-size:0.82rem;
+                                font-weight:700;
+                            "
+                        >
+                            {column}
+                        </span>
+                        '''
+                        for column in affected_columns
+                    ]
+                )
+
+                card_html += f"""
+                <div class='recommendation-section'>
+
+                    <div class='recommendation-section-title'>
+                        Affected Columns
+                    </div>
+
+                    <div>
+                        {columns_html}
+                    </div>
+
+                </div>
+                """
+
+            # =================================================
+            # Supporting Issues
+            # =================================================
+
+            if issues:
+
+                issues_html = ""
+
+                for issue in issues:
+
+                    issues_html += f"""
+                    <li style='margin-bottom:0.45rem;'>
+                        {issue.get("description", "Issue detected.")}
+                    </li>
+                    """
+
+                card_html += f"""
+                <div class='recommendation-section'>
+
+                    <div class='recommendation-section-title'>
+                        Supporting Issues
+                    </div>
+
+                    <ul style='padding-left:1.5rem;margin-top:0.7rem;'>
+                        {issues_html}
+                    </ul>
+
+                </div>
+                """
+
+            card_html += "</div>"
+
+            st.markdown(
+                card_html,
+                unsafe_allow_html=True,
+            )
 
 # ============================================================================
 # MAIN
@@ -1508,17 +2396,48 @@ def main():
     ):
         st.markdown(
             """
-            # ML Reliability Platform
+            <div class='header-section'>
+            <div class='header-title'>ML Reliability Platform</div>
+            <div class='header-subtitle'>Enterprise-grade ML audit and diagnostics system</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-            Enterprise-grade ML audit and diagnostics system.
+        st.markdown("## Core Capabilities")
 
-            ## Core Capabilities
-            - leakage detection
-            - drift analysis
-            - multicollinearity analysis
-            - stability diagnostics
-            - feature auditing
-            - deployment readiness scoring
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown(
+                """
+                **Data Integrity Diagnostics**
+                - Data leakage detection
+                - Training-test set overlap analysis
+                - Population drift monitoring
+                """
+            )
+
+        with col2:
+            st.markdown(
+                """
+                **Model Reliability Auditing**
+                - Stability and overfitting diagnostics
+                - Multicollinearity analysis
+                - Feature cardinality assessment
+                """
+            )
+
+        st.markdown("---")
+
+        st.markdown(
+            """
+            **Getting Started:**
+
+            1. Upload your CSV dataset using the sidebar
+            2. Specify the target variable column
+            3. Select your task type (classification or regression)
+            4. Click "Run Audit" to begin analysis
             """
         )
 
@@ -1538,7 +2457,7 @@ def main():
 
     if controls["run_button"]:
         with st.spinner(
-            "Executing audit..."
+            "Executing audit pipeline..."
         ):
             try:
                 from app.pipeline.pipeline_runner import (
@@ -1568,7 +2487,7 @@ def main():
 
             except Exception as error:
                 st.error(
-                    f"Execution failed: {str(error)}"
+                    f"Audit execution failed: {str(error)}"
                 )
 
                 st.exception(error)
