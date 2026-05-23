@@ -5,6 +5,9 @@ A developer-focused ML pipeline diagnostics and orchestration framework designed
 The system analyzes datasets, validates preprocessing behavior, detects statistical anomalies, and generates actionable engineering recommendations for improving pipeline reliability.
 
 ---
+LIVE DEMO ->https://auz6hkv5aerealwygrhgrr.streamlit.app/
+
+<img width="1914" height="1070" alt="Screenshot 2026-05-23 145845" src="https://github.com/user-attachments/assets/94c9a283-235b-4e60-a5a1-40c7d8ffcd43" />
 
 # Why This Project Exists
 
