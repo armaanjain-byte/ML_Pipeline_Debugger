@@ -1,198 +1,106 @@
 # ML Pipeline Debugger
 
-A developer-focused ML pipeline diagnostics and orchestration framework designed to detect silent failures in machine learning workflows before model training begins.
+A diagnostics and observability framework that detects silent failures in ML pipelines before model training begins.
 
-The system analyzes datasets, validates preprocessing behavior, detects statistical anomalies, and generates actionable engineering recommendations for improving pipeline reliability.
-
----
-LIVE DEMO ->https://auz6hkv5aerealwygrhgrr.streamlit.app/
-
-<img width="1914" height="1070" alt="Screenshot 2026-05-23 145845" src="https://github.com/user-attachments/assets/94c9a283-235b-4e60-a5a1-40c7d8ffcd43" />
-
-# Why This Project Exists
-
-Most machine learning systems do not fail because of model architecture.
-They fail because of:
-
-* target leakage
-* train/test contamination
-* unstable preprocessing
-* schema inconsistencies
-* hidden outliers
-* distribution drift
-* poor feature engineering decisions
-
-These problems frequently pass silently through traditional ML workflows and produce models that appear accurate during validation but fail in production.
-
-ML Pipeline Debugger acts as a validation and observability layer between raw data ingestion and model training.
+**Live Demo →** [auz6hkv5aerealwygrhgrr.streamlit.app](https://auz6hkv5aerealwygrhgrr.streamlit.app/)
 
 ---
 
-# Core Features
+<!-- Streamlit app screenshot placeholder -->
+ML Pipeline Debugger UI
+<img width="1914" height="1070" alt="Screenshot 2026-05-23 145845" src="https://github.com/user-attachments/assets/336fd1ad-9ac3-43ec-98a5-91806dbb1017" />
 
-## Automated Diagnostics Engine
-
-The framework automatically detects:
-
-* target leakage
-* high-cardinality feature risks
-* multicollinearity
-* class imbalance
-* schema inconsistencies
-* multivariate outliers
-* distribution anomalies
-* preprocessing issues
 
 ---
 
-## Recommendation Engine
+## The Problem
 
-Instead of only reporting errors, the system generates remediation suggestions with severity-aware recommendations.
+Most ML pipelines fail silently.
 
-Example:
+The model trains. Metrics look fine. Then it fails in production — not because the architecture was wrong, but because the data going into training was wrong in ways that were never caught:
+
+- target leakage
+- train/test contamination from improperly scoped preprocessing
+- schema inconsistencies masked by type coercion
+- distribution anomalies that distort learned boundaries
+- high-cardinality features treated as categorical with no encoding guard
+
+These failures are hard to see, easy to miss, and expensive to debug post-deployment.
+
+ML Pipeline Debugger is a validation and observability layer that runs before training and catches these problems structurally.
+
+---
+
+## What It Does
+
+```
+Raw Dataset
+    ↓
+Data Loader → schema audit, type validation
+    ↓
+Diagnostic Engine → leakage, outliers, cardinality, class balance, multicollinearity
+    ↓
+Recommendation Engine → severity-aware remediation suggestions
+    ↓
+Robust Pipeline Construction → sklearn pipelines with proper train-only fitting
+    ↓
+Model Evaluation → CV metrics, feature importance
+    ↓
+Structured Report
+```
+
+---
+
+## Diagnostics Covered
+
+| Check | What It Catches |
+|---|---|
+| Target Leakage Detection | Features that directly encode the label |
+| Train/Test Contamination | Scalers/encoders fit on full dataset before splitting |
+| Multivariate Outlier Detection | Isolation Forest — detects anomaly clusters invisible to univariate checks |
+| Class Imbalance | Label distribution skew that inflates accuracy metrics |
+| High-Cardinality Risk | Features likely to cause dimensionality explosion or overfitting |
+| Multicollinearity | Correlated features that destabilize linear model coefficients |
+| Schema Inconsistency | Type drift, implicit nulls, mixed representations |
+| Distribution Anomaly | Skew, kurtosis, and non-normal distributions that affect preprocessing assumptions |
+
+---
+
+## Recommendation Format
+
+Every diagnostic produces a structured, actionable recommendation — not just a warning:
 
 ```json
 {
   "type": "multivariate_outliers",
+  "column": "dataset_wide",
   "severity": "high",
+  "description": "Detected 3190 multivariate outliers (56.6%)",
   "action": "investigate_anomalies",
   "recommendations": [
-    "Investigate anomalous records",
-    "Use robust scaling methods",
-    "Consider RobustScaler for preprocessing"
+    "Investigate anomalous records before training",
+    "Use RobustScaler instead of StandardScaler",
+    "Consider outlier-robust loss functions"
   ]
 }
 ```
 
----
-
-## Robust ML Pipeline Construction
-
-Uses native scikit-learn abstractions including:
-
-* Pipeline
-* ColumnTransformer
-* cross-validation
-* train/test isolation
-
-This prevents:
-
-* scaling leakage
-* encoding contamination
-* improper preprocessing application
+Severity levels: `low`, `medium`, `high`. High-severity findings block pipeline continuation by default in strict mode.
 
 ---
 
-## Structured Logging and Execution Tracing
+## Real Execution Trace
 
-Each pipeline stage is logged with:
+Tested on the Telco Customer Churn dataset (7,043 records):
 
-* execution state
-* diagnostic outcomes
-* model evaluation metrics
-* warning generation
-* preprocessing behavior
-
----
-
-# System Architecture
-
-```text
-                    ┌────────────────────┐
-                    │   Raw Dataset      │
-                    └─────────┬──────────┘
-                              │
-                              ▼
-                    ┌────────────────────┐
-                    │    Data Loader     │
-                    └─────────┬──────────┘
-                              │
-                              ▼
-                    ┌────────────────────┐
-                    │ Diagnostic Engine  │
-                    └─────────┬──────────┘
-                              │
-          ┌───────────────────┼───────────────────┐
-          ▼                   ▼                   ▼
- ┌────────────────┐ ┌────────────────┐ ┌────────────────┐
- │ Leakage Check  │ │ Outlier Engine │ │ Schema Checks  │
- └────────────────┘ └────────────────┘ └────────────────┘
-          │                   │                   │
-          └───────────────────┼───────────────────┘
-                              ▼
-                    ┌────────────────────┐
-                    │ Recommendation     │
-                    │ Engine             │
-                    └─────────┬──────────┘
-                              │
-                              ▼
-                    ┌────────────────────┐
-                    │ Model Pipeline     │
-                    └─────────┬──────────┘
-                              │
-                              ▼
-                    ┌────────────────────┐
-                    │ Structured Reports │
-                    └────────────────────┘
 ```
-
----
-
-# Project Structure
-
-```text
-ML_Pipeline_Debugger/
-│
-├── app/
-│   ├── core/              # Configurations and exception handling
-│   ├── debugger/          # Diagnostics and recommendation engines
-│   ├── pipeline/          # Data loading, preprocessing, model execution
-│   └── utils/             # Logging and helper utilities
-│
-├── data/                  # Example datasets
-├── tests/                 # Unit and integration tests
-├── main.py                # CLI entry point
-├── requirements.txt
-└── README.md
-```
-
----
-
-# Real Pipeline Execution Example
-
-## Dataset
-
-The framework was tested on the Telco Customer Churn dataset:
-
-* 7,043 customer records
-* mixed categorical and numerical features
-* binary classification target
-
----
-
-## Run
-
-```bash
-python main.py \
-    --file data/WA_Fn-UseC_-Telco-Customer-Churn.csv \
-    --target Churn \
-    --task classification
-```
-
----
-
-## Execution Trace
-
-```text
 ============================================================
 ML PIPELINE DEBUGGER INITIALIZED
 ============================================================
 
-Dataset: data/WA_Fn-UseC_-Telco-Customer-Churn.csv
-Target: Churn
-Task: Classification
-
-------------------------------------------------------------
+Dataset:  data/WA_Fn-UseC_-Telco-Customer-Churn.csv
+Target:   Churn
+Task:     Classification
 
 [Step 1/8] Loading data...
 ✓ Data loaded: 7043 rows
@@ -203,24 +111,16 @@ Task: Classification
 [Step 3/8] Generating recommendations...
 
 [Step 4/8] Training robust model pipeline...
-
-Feature 'customerID' has high cardinality
-Feature 'TotalCharges' has high cardinality
-
-✓ Model trained on 20 features
+  ⚠ Feature 'customerID' has high cardinality
+  ⚠ Feature 'TotalCharges' has high cardinality
+  ✓ Model trained on 20 features
 
 [Step 5/8] Making predictions on holdout set...
-
 [Step 6/8] Evaluating model performance...
-✓ Metrics generated:
-- accuracy
-- precision
-- recall
-- f1-score
-- cross-validation metrics
+  ✓ accuracy, precision, recall, f1-score, cross-validation metrics
 
 [Step 7/8] Computing feature importance...
-WARNING: Feature importance method not found in Model class.
+[Step 8/8] Generating report...
 
 ============================================================
 PIPELINE SUCCESS
@@ -229,121 +129,59 @@ PIPELINE SUCCESS
 
 ---
 
-# Diagnostic Recommendation Example
+## Pipeline Design — What "Robust" Means
 
-```json
-{
-  "recommendations": [
-    {
-      "type": "multivariate_outliers",
-      "column": "dataset_wide",
-      "severity": "high",
-      "description": "Detected 3190 multivariate outliers (56.6%)",
-      "action": "investigate_anomalies",
-      "recommendations": [
-        "Investigate anomalous records",
-        "Use robust scaling methods",
-        "Consider RobustScaler for preprocessing"
-      ]
-    }
-  ]
-}
+Sklearn's `Pipeline` and `ColumnTransformer` are used throughout — not as convenience, but as a correctness constraint:
+
+**Imputers fit on training folds only.** Values from the test set never inform imputation parameters.
+
+**Scalers scoped to training data.** Mean and variance computed from training, applied to test. Standard practice that's frequently violated in notebook-first workflows.
+
+**Encoders preserve holdout integrity.** Unseen categories are handled explicitly, not silently dropped or errored.
+
+This isn't complexity for its own sake — it's the minimum required to produce trustworthy evaluation metrics.
+
+---
+
+## System Architecture
+
+```
+                    ┌────────────────────┐
+                    │   Raw Dataset      │
+                    └─────────┬──────────┘
+                              │
+                    ┌─────────▼──────────┐
+                    │    Data Loader     │
+                    └─────────┬──────────┘
+                              │
+                    ┌─────────▼──────────┐
+                    │  Diagnostic Engine │
+                    └──┬──────┬──────┬───┘
+                       │      │      │
+              ┌────────▼─┐ ┌──▼───┐ ┌▼────────────┐
+              │ Leakage  │ │Outl. │ │Schema Checks│
+              └────────┬─┘ └──┬───┘ └┬────────────┘
+                       └──────┴──────┘
+                              │
+                    ┌─────────▼──────────┐
+                    │ Recommendation     │
+                    │ Engine             │
+                    └─────────┬──────────┘
+                              │
+                    ┌─────────▼──────────┐
+                    │   Model Pipeline   │
+                    └─────────┬──────────┘
+                              │
+                    ┌─────────▼──────────┐
+                    │  Structured Report │
+                    └────────────────────┘
 ```
 
 ---
 
-# Technical Design
+## Usage
 
-## Data Validation Layer
-
-The framework validates datasets before model training begins.
-
-Checks include:
-
-* missing values
-* datatype inconsistencies
-* class imbalance
-* variance analysis
-* feature cardinality analysis
-
----
-
-## Outlier Detection
-
-Implements:
-
-* Isolation Forest for multivariate anomaly detection
-* IQR-based analysis for univariate outliers
-
-This helps identify records capable of destabilizing model behavior.
-
----
-
-## Leakage Prevention
-
-Preprocessing operations are isolated using scikit-learn Pipelines to ensure:
-
-* imputers fit only on training data
-* scalers avoid test contamination
-* encoders preserve holdout integrity
-
----
-
-## Modular OOP Architecture
-
-The project follows a modular object-oriented design:
-
-* diagnostics are isolated from orchestration
-* preprocessing is independent from training
-* recommendation generation is extensible
-* components can be tested independently
-
----
-
-# Engineering Practices
-
-* defensive programming
-* structured logging
-* modular architecture
-* reusable preprocessing pipelines
-* unit testing
-* exception-safe execution
-* configurable diagnostics
-
----
-
-# Tech Stack
-
-* Python
-* pandas
-* NumPy
-* scikit-learn
-* SciPy
-* pytest
-
----
-
-# Installation
-
-```bash
-git clone https://github.com/armaanjain-byte/ML_Pipeline_Debugger.git
-
-cd ML_Pipeline_Debugger
-
-python -m venv venv
-
-source venv/bin/activate
-# Windows:
-# venv\Scripts\activate
-
-pip install -r requirements.txt
-```
-
----
-
-# Usage
-
-## Classification
+### Classification
 
 ```bash
 python main.py \
@@ -352,7 +190,7 @@ python main.py \
     --task classification
 ```
 
-## Regression
+### Regression
 
 ```bash
 python main.py \
@@ -361,7 +199,7 @@ python main.py \
     --task regression
 ```
 
-## Development Mode
+### Development Mode (verbose diagnostics)
 
 ```bash
 python main.py \
@@ -373,30 +211,72 @@ python main.py \
 
 ---
 
-# Current Limitations
+## Installation
 
-* feature importance extraction is currently model-dependent
-* DAG-style tracing is limited to current sklearn-oriented workflows
-* distributed execution support is not implemented
-* visualization dashboards are not yet available
+```bash
+git clone https://github.com/armaanjain-byte/ML_Pipeline_Debugger.git
+cd ML_Pipeline_Debugger
 
----
+python -m venv venv
+source venv/bin/activate   # Windows: venv\Scripts\activate
 
-# Future Improvements
-
-Planned extensions:
-
-* MLflow integration
-* Airflow pipeline tracing
-* report visualization layer
-* distributed execution support
-* dataset drift monitoring
-* experiment tracking integration
+pip install -r requirements.txt
+```
 
 ---
 
-# Key Engineering Focus
+## Project Structure
 
-This project focuses on ML systems reliability, observability, and debugging infrastructure rather than only model experimentation.
+```
+ML_Pipeline_Debugger/
+│
+├── app/
+│   ├── core/          # configuration, exception handling
+│   ├── debugger/      # diagnostic engine, recommendation engine
+│   ├── pipeline/      # data loading, preprocessing, model orchestration
+│   └── utils/         # logging, helpers
+│
+├── data/              # example datasets
+├── tests/             # unit and integration tests
+├── docs/              # screenshots
+├── main.py
+└── requirements.txt
+```
 
-The goal is to make ML pipelines easier to validate, debug, and trust before deployment.
+---
+
+## Tech Stack
+
+| Component | Library |
+|---|---|
+| Data | Pandas, NumPy |
+| Modeling | Scikit-learn |
+| Anomaly Detection | Scikit-learn (Isolation Forest) |
+| Statistical Tests | SciPy |
+| Testing | Pytest |
+| UI | Streamlit |
+
+---
+
+## Current Limitations
+
+- Feature importance extraction is model-dependent (not available for all sklearn estimators)
+- DAG-style pipeline tracing is limited to sklearn-compatible workflows
+- No distributed execution support
+- No MLflow or Airflow integration yet
+
+---
+
+## Roadmap
+
+- [ ] MLflow experiment tracking integration
+- [ ] Airflow DAG tracing support
+- [ ] Dataset drift monitoring (train-time vs inference-time distribution shift)
+- [ ] Visual report layer (HTML export)
+- [ ] Distributed execution support
+
+---
+
+## Author
+
+**Armaan Jain** · [github.com/armaanjain-byte](https://github.com/armaanjain-byte)
