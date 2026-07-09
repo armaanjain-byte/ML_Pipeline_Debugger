@@ -1,5 +1,5 @@
 # ML Pipeline Debugger
-
+Making changes to add more features and visibility.
 A diagnostics and observability framework that detects silent failures in ML pipelines before model training begins.
 
 **Live Demo →** [auz6hkv5aerealwygrhgrr.streamlit.app](https://auz6hkv5aerealwygrhgrr.streamlit.app/)
